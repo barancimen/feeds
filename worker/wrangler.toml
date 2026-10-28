@@ -18,6 +18,12 @@ name = "CREATE_LIMIT"
 namespace_id = "7101"
 simple = { limit = 2, period = 60 }
 
+# Searches, per client IP.
+[[ratelimits]]
+name = "SEARCH_LIMIT"
+namespace_id = "7103"
+simple = { limit = 30, period = 60 }
+
 # Uploads, per feed. The client sends at most 2 batches every 30 s.
 [[ratelimits]]
 name = "PUSH_LIMIT"

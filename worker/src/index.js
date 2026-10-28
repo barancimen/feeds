@@ -1,6 +1,7 @@
 // X Feed Share backend: a Cloudflare Worker over D1. Public reads, token-authenticated writes.
 
 import { KINDS, MAX_BATCH, cleanLabel, cleanRecord } from '../../core/safe.js';
+import { ftsQuery } from './fts.js';
 import USERSCRIPT from './userscript.gen.js';
 import VIEWER_JS from './viewer.gen.js';
 
@@ -10,6 +11,7 @@ const MAX_ITEMS = 1000;          // per feed and kind
 const DAILY_QUOTA = 5000;        // tweets per feed per day
 const MAX_BODY = 512 * 1024;
 const FEED_ID = /^[a-z0-9]{10}$/;
+const SEARCH_SCAN = 2000;        // newest matching copies considered per search, bounds rows read
 // D1 allows 100 bound parameters per statement.
 const TWEET_CHUNK = 33;          // 3 params per row
 const ITEM_CHUNK = 16;           // 6 params per row
@@ -64,6 +66,7 @@ async function route(req, env) {
     if (m === 'GET') return listFeeds(env, url);
     if (m === 'POST') return createFeed(req, env);
   }
+  if (p === '/api/search' && m === 'GET') return search(req, env, url);
   const f = p.match(/^\/api\/feeds\/([a-z0-9]{10})(\/items)?$/);
   if (f) {
     const [, id, items] = f;
@@ -182,12 +185,53 @@ async function pushItems(req, env, id) {
   return json({ accepted: rows.length });
 }
 
+// Directory of recently active feeds, newest first. `q` filters by name; `before` is the `next` cursor.
 async function listFeeds(env, url) {
   const limit = Math.min(Math.max(int(url.searchParams.get('limit'), 50), 1), 100);
+  const q = (url.searchParams.get('q') || '').trim().slice(0, 40);
+  const like = q ? `%${q.replace(/[\\%_]/g, c => '\\' + c)}%` : null;
+  const [cs, cid] = (url.searchParams.get('before') || '').split('.');
   const { results } = await env.DB.prepare(
-    'SELECT * FROM feeds WHERE last_push_at > ? ORDER BY last_push_at DESC LIMIT ?',
-  ).bind(Date.now() - RETENTION_MS, limit).all();
-  return json({ feeds: results.map(publicFeed) }, 200, { 'cache-control': 'public, max-age=30' });
+    `SELECT * FROM feeds WHERE last_push_at > ?1
+       AND (last_push_at < ?2 OR (last_push_at = ?2 AND id > ?3))
+       AND (?4 IS NULL OR label LIKE ?4 ESCAPE '\\')
+     ORDER BY last_push_at DESC, id ASC LIMIT ?5`,
+  ).bind(Date.now() - RETENTION_MS, int(cs, Number.MAX_SAFE_INTEGER), FEED_ID.test(cid) ? cid : '', like, limit).all();
+  const last = results[results.length - 1];
+  return json({
+    feeds: results.map(publicFeed),
+    next: results.length === limit ? `${last.last_push_at}.${last.id}` : null,
+  }, 200, { 'cache-control': 'public, max-age=30' });
+}
+
+// Posts matching `q` across all feeds (or one `feed`), grouped per stored copy with the feeds it appeared in.
+async function search(req, env, url) {
+  await rateLimit(env.SEARCH_LIMIT, req.headers.get('cf-connecting-ip') || 'local');
+  const match = ftsQuery(url.searchParams.get('q'));
+  if (!match) throw new HttpError(400, 'search needs at least one word');
+  const feed = url.searchParams.get('feed');
+  const kind = url.searchParams.get('kind');
+  const limit = Math.min(Math.max(int(url.searchParams.get('limit'), 20), 1), 50);
+  const offset = Math.min(Math.max(int(url.searchParams.get('offset'), 0), 0), 500);
+  const { results } = await env.DB.prepare(
+    `SELECT t.data, MAX(i.session) AS last_seen,
+       json_group_array(json_object('feed_id', i.feed_id, 'kind', i.kind, 'label', f.label, 'session', i.session)) AS seen
+     FROM (SELECT rowid FROM tweets_fts WHERE tweets_fts MATCH ?1 ORDER BY rowid DESC LIMIT ${SEARCH_SCAN}) m
+     JOIN tweets t ON t.n = m.rowid
+     JOIN items i ON i.hash = t.hash
+     JOIN feeds f ON f.id = i.feed_id
+     WHERE (?2 IS NULL OR i.feed_id = ?2) AND (?3 IS NULL OR i.kind = ?3)
+     GROUP BY t.hash
+     ORDER BY last_seen DESC, t.hash
+     LIMIT ?4 OFFSET ?5`,
+  ).bind(match, FEED_ID.test(feed) ? feed : null, KINDS.includes(kind) ? kind : null, limit, offset).all();
+  return json({
+    results: results.map(r => ({
+      tweet: JSON.parse(r.data),
+      seen: JSON.parse(r.seen).sort((a, b) => b.session - a.session).slice(0, 10),
+    })),
+    next: results.length === limit && offset + limit <= 500 ? offset + limit : null,
+  }, 200, { 'cache-control': 'public, max-age=30' });
 }
 
 async function getFeed(env, id, url) {

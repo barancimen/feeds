@@ -13,12 +13,38 @@ CREATE TABLE IF NOT EXISTS feeds (
 );
 CREATE INDEX IF NOT EXISTS feeds_recent ON feeds(last_push_at DESC);
 
--- Keyed by a hash of the cleaned record, so a publisher can only ever change their own copy of a tweet.
+-- One row per distinct copy of a tweet, keyed by a hash of the cleaned record, so a publisher can only
+-- ever change their own copy. `n` is an explicit rowid so the search index can point at it stably.
 CREATE TABLE IF NOT EXISTS tweets (
-  hash TEXT PRIMARY KEY,
+  n    INTEGER PRIMARY KEY,
+  hash TEXT NOT NULL UNIQUE,
   id   TEXT NOT NULL,
   data TEXT NOT NULL
 );
+
+-- Full-text search over each copy: post text (incl. retweeted/quoted text) and the people in it.
+-- rowid = tweets.n; kept in sync by the triggers below, so pushes, deletes and GC need no extra code.
+CREATE VIRTUAL TABLE IF NOT EXISTS tweets_fts USING fts5(body, people, tokenize = 'unicode61 remove_diacritics 2');
+
+CREATE TRIGGER IF NOT EXISTS tweets_fts_insert AFTER INSERT ON tweets BEGIN
+  INSERT INTO tweets_fts (rowid, body, people) VALUES (new.n,
+    coalesce(json_extract(new.data, '$.text'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.retweeted.text'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.quoted.text'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.retweeted.quoted.text'), ''),
+    coalesce(json_extract(new.data, '$.author.handle'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.author.name'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.retweeted.author.handle'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.retweeted.author.name'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.quoted.author.handle'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.quoted.author.name'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.retweeted.quoted.author.handle'), '') || ' ' ||
+    coalesce(json_extract(new.data, '$.retweeted.quoted.author.name'), ''));
+END;
+
+CREATE TRIGGER IF NOT EXISTS tweets_fts_delete AFTER DELETE ON tweets BEGIN
+  DELETE FROM tweets_fts WHERE rowid = old.n;
+END;
 
 CREATE TABLE IF NOT EXISTS items (
   feed_id  TEXT NOT NULL,

@@ -101,6 +101,32 @@ try {
     assert.equal(stored.extra, undefined);
   });
 
+  const searchIds = async (qs, status = 200) => {
+    const r = await call('GET', `/api/search?${qs}`);
+    assert.equal(r.status, status, `search ${qs}`);
+    return r.data;
+  };
+
+  await step('full-text search: words, prefixes, people, retweeted text, scoping, hostile input', async () => {
+    let d = await searchIds('q=jerry');
+    assert.deepEqual(d.results.map(r => r.tweet.id).sort(), ['1', '31', '32']);
+    assert.deepEqual(d.results[0].seen.map(s => [s.feed_id, s.kind, s.label]), [[A.id, 'foryou', '@tester feed']]);
+    assert.ok((await searchIds('q=JER')).results.some(r => r.tweet.id === '1'));
+    assert.deepEqual((await searchIds('q=carol')).results.map(r => r.tweet.id), ['5']);
+    assert.deepEqual((await searchIds('q=original%20full')).results.map(r => r.tweet.id), ['5']);
+    assert.deepEqual((await searchIds('q=caf%C3%A9')).results, []);
+    assert.equal((await searchIds(`q=jerry&feed=${A.id}&kind=foryou`)).results.length, 3);
+    assert.deepEqual((await searchIds('q=jerry&feed=zzzzzzzzzz')).results, []);
+    assert.deepEqual((await searchIds('q=jerry&kind=following')).results, []);
+    assert.equal((await searchIds('q=a%22%20OR%20body%3A%22b')).results.length, 0);
+    await searchIds('q=%22*%3A(', 400);
+    await searchIds('q=', 400);
+    const page1 = await searchIds('q=jerry&limit=2');
+    assert.equal(page1.results.length, 2);
+    assert.equal(page1.next, 2);
+    assert.equal((await searchIds('q=jerry&limit=2&offset=2')).results.length, 1);
+  });
+
   await step('pages newest session first, in feed order, without duplicates', async () => {
     const ids = [];
     let next = null;
@@ -125,17 +151,37 @@ try {
   await step("one publisher can't rewrite tweets shown in another feed", async () => {
     B = (await call('POST', '/api/feeds', { label: 'mallory' })).data;
     const fake = { ...recs[0], text: 'FAKE TEXT' };
-    assert.equal((await call('POST', `/api/feeds/${B.id}/items`, { kind: 'foryou', tweets: [fake] }, B.token)).status, 200);
+    assert.equal((await call('POST', `/api/feeds/${B.id}/items`, { kind: 'foryou', tweets: [fake, recs[1]] }, B.token)).status, 200);
     const a = await call('GET', `/api/feeds/${A.id}?kind=foryou&limit=100`);
     assert.equal(a.data.items.find(i => i.tweet.id === recs[0].id).tweet.text, recs[0].text);
     const b = await call('GET', `/api/feeds/${B.id}?kind=foryou`);
     assert.equal(b.data.items[0].tweet.text, 'FAKE TEXT');
   });
 
-  await step('lists feeds without secrets; rename needs the token', async () => {
+  await step('search keeps copies apart: a fake copy is attributed only to its own feed', async () => {
+    const fake = (await searchIds('q=fake')).results;
+    assert.deepEqual(fake.map(r => [r.tweet.id, r.seen.map(s => s.feed_id)]), [[recs[0].id, [B.id]]]);
+    assert.ok((await searchIds('q=jerry')).results.every(r => r.seen.every(s => s.feed_id === A.id)));
+    // An identical copy seen by two publishers is one result listing both feeds.
+    const same = (await searchIds('q=original')).results;
+    assert.equal(same.length, 1);
+    assert.deepEqual(same[0].seen.map(s => s.feed_id).sort(), [A.id, B.id].sort());
+  });
+
+  await step('lists feeds without secrets, pages, filters by name; rename needs the token', async () => {
     const list = await call('GET', '/api/feeds');
     assert.deepEqual(list.data.feeds.map(f => f.id).sort(), [A.id, B.id].sort());
+    assert.equal(list.data.next, null);
     assert.ok(!JSON.stringify(list.data).includes('token'));
+    const p1 = (await call('GET', '/api/feeds?limit=1')).data;
+    const p2 = (await call('GET', `/api/feeds?limit=1&before=${p1.next}`)).data;
+    const p3 = (await call('GET', `/api/feeds?limit=1&before=${p2.next}`)).data;
+    assert.deepEqual([...p1.feeds, ...p2.feeds].map(f => f.id).sort(), [A.id, B.id].sort());
+    assert.deepEqual(p3.feeds, []);
+    assert.deepEqual((await call('GET', '/api/feeds?q=MALL')).data.feeds.map(f => f.id), [B.id]);
+    assert.deepEqual((await call('GET', '/api/feeds?q=tester%20f')).data.feeds.map(f => f.id), [A.id]);
+    assert.deepEqual((await call('GET', '/api/feeds?q=%25')).data.feeds, []);
+    assert.deepEqual((await call('GET', '/api/feeds?q=_')).data.feeds, []);
     assert.equal((await call('PATCH', `/api/feeds/${A.id}`, { label: 'renamed' }, B.token)).status, 401);
     assert.equal((await call('PATCH', `/api/feeds/${A.id}`, { label: 'renamed' }, A.token)).data.label, 'renamed');
   });
@@ -153,6 +199,8 @@ try {
     assert.equal(r.status, 200);
     assert.deepEqual((await call('GET', `/api/feeds/${B.id}?kind=foryou`)).data.items, []);
     assert.equal(sql("SELECT COUNT(*) AS n FROM tweets WHERE data LIKE '%FAKE TEXT%'")[0].n, 0);
+    assert.deepEqual((await searchIds('q=fake')).results, []);
+    assert.deepEqual((await searchIds('q=original')).results[0].seen.map(s => s.feed_id), [A.id]);
     assert.equal((await call('GET', `/api/feeds/${A.id}?kind=foryou&limit=100`)).data.items.length, recs.length + 3);
   });
 
@@ -164,6 +212,8 @@ try {
     assert.equal((await call('POST', items, { kind: 'foryou', tweets: recs.slice(0, 1) }, A.token)).status, 404);
     assert.equal(sql(`SELECT COUNT(*) AS n FROM items WHERE feed_id = '${A.id}'`)[0].n, 0);
     assert.equal(sql('SELECT COUNT(*) AS n FROM tweets')[0].n, 0);
+    assert.equal(sql('SELECT COUNT(*) AS n FROM tweets_fts')[0].n, 0);
+    assert.deepEqual((await searchIds('q=jerry')).results, []);
   });
 
   console.log(`\n${steps.length} worker checks passed`);
