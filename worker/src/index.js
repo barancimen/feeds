@@ -2,6 +2,7 @@
 
 import { KINDS, MAX_BATCH, cleanLabel, cleanRecord } from '../../core/safe.js';
 import { ftsQuery } from './fts.js';
+import { canonicalRedirect, splitBase } from './paths.js';
 import { CLOCK_SLACK_MS, CODE_TTL_MS, hasCode, makeCode, parseOembed, snowflakeMs, verifyText } from './verify.js';
 import USERSCRIPT from './userscript.gen.js';
 import VIEWER_JS from './viewer.gen.js';
@@ -49,15 +50,17 @@ export default {
 
 async function route(req, env) {
   const url = new URL(req.url);
-  const p = url.pathname;
+  const { base, path: p } = splitBase(url.pathname);
   const m = req.method;
   if (m === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (m === 'GET' || m === 'HEAD') {
-    if (p === '/') return page(200);
+    const moved = canonicalRedirect(url, env.PUBLIC_URL);
+    if (moved) return Response.redirect(moved, 301);
+    if (p === '/') return page(200, base);
     if (p.startsWith('/f/')) {
       const id = p.slice(3);
       const found = FEED_ID.test(id) && await env.DB.prepare('SELECT 1 FROM feeds WHERE id = ?').bind(id).first();
-      return page(found ? 200 : 404);
+      return page(found ? 200 : 404, base);
     }
     if (p === '/viewer.js') return asset(VIEWER_JS, 'text/javascript');
     if (p === '/x-feed-share.user.js') return asset(USERSCRIPT, 'text/javascript');
@@ -352,7 +355,8 @@ export async function gc(env, now) {
 
 // ---------- public page ----------
 
-const PAGE = `<!doctype html>
+// `base` is '' or '/feeds' (never user input), so it is safe to interpolate.
+const pageHtml = base => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -361,16 +365,16 @@ const PAGE = `<!doctype html>
 <title>Shared X Feeds</title>
 </head>
 <body>
-<div id="app"></div>
-<script src="/viewer.js"></script>
+<div id="app" data-base="${base}"></div>
+<script src="${base}/viewer.js"></script>
 </body>
 </html>`;
 
 const PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
   "img-src https://pbs.twimg.com https://abs.twimg.com; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-function page(status) {
-  return new Response(PAGE, { status, headers: {
+function page(status, base) {
+  return new Response(pageHtml(base), { status, headers: {
     'content-type': 'text/html; charset=utf-8',
     'content-security-policy': PAGE_CSP,
     'x-content-type-options': 'nosniff',

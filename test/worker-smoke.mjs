@@ -91,6 +91,22 @@ try {
     assert.equal((await call('GET', '/f/zzzzzzzzzz')).status, 404);
   });
 
+  await step('everything also works under /feeds (gestaltschaft.com/feeds)', async () => {
+    for (const path of ['/feeds', '/feeds/', `/feeds/f/${A.id}`]) {
+      const r = await call('GET', path);
+      assert.equal(r.status, 200, path);
+      assert.match(r.data, /data-base="\/feeds"/);
+      assert.match(r.data, /<script src="\/feeds\/viewer\.js">/);
+    }
+    assert.match((await call('GET', '/')).data, /data-base=""/);
+    assert.equal((await call('GET', '/feeds/f/zzzzzzzzzz')).status, 404);
+    assert.match((await call('GET', '/feeds/viewer.js')).data, /Install the userscript/);
+    assert.match((await call('GET', '/feeds/x-feed-share.user.js')).data, /==UserScript==/);
+    assert.ok((await call('GET', '/feeds/api/feeds')).data.feeds);
+    assert.equal((await call('GET', `/feeds/api/feeds/${A.id}`)).data.feed.id, A.id);
+    assert.equal((await call('GET', '/feedsx')).status, 404);
+  });
+
   const recs = extractFeed(FOR_YOU);
   const items = `/api/feeds/${A.id}/items`;
 

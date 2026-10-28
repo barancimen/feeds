@@ -1,6 +1,6 @@
 {
   "name": "x-feed-share",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Share your X home feed (For You / Following) publicly; browse others' shared feeds.",
@@ -9,7 +9,7 @@
     "test": "node --test test/*.test.js",
     "test:worker": "node test/worker-smoke.mjs",
     "dev:worker": "node build.mjs && cd worker && wrangler dev --local",
-    "deploy": "node build.mjs --api https://x-feed-share.barancimen321321.workers.dev && cd worker && wrangler deploy"
+    "deploy": "node build.mjs --api https://gestaltschaft.com/feeds && cd worker && wrangler deploy"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

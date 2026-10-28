@@ -2,6 +2,17 @@ name = "x-feed-share"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
+# Public home: gestaltschaft.com/feeds. The rest of gestaltschaft.com stays with its own Worker
+# (a Custom Domain); these path routes run first. workers.dev redirects pages here but keeps the API.
+workers_dev = true
+routes = [
+  { pattern = "gestaltschaft.com/feeds", zone_name = "gestaltschaft.com" },
+  { pattern = "gestaltschaft.com/feeds/*", zone_name = "gestaltschaft.com" },
+]
+
+[vars]
+PUBLIC_URL = "https://gestaltschaft.com/feeds"
+
 # Created with `npx wrangler d1 create xfeeds`. Local dev (--local) uses its own copy.
 [[d1_databases]]
 binding = "DB"
@@ -30,8 +41,8 @@ name = "SEARCH_LIMIT"
 namespace_id = "7103"
 simple = { limit = 30, period = 60 }
 
-# Uploads, per feed. The client sends at most 2 batches every 30 s.
+# Uploads, per feed. The client uploads continuously but at most one batch every 4 s (15/min).
 [[ratelimits]]
 name = "PUSH_LIMIT"
 namespace_id = "7102"
-simple = { limit = 10, period = 60 }
+simple = { limit = 20, period = 60 }

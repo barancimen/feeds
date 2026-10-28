@@ -1,15 +1,15 @@
 // The on-x.com widget: a pill in the corner that opens a Share / Browse panel (closed Shadow DOM).
 
 import { renderDirectory, renderFeed, renderSearch } from './browse.js';
-import { CSS, el, isolateKeys } from './render.js';
+import { ago, CSS, el, isolateKeys } from './render.js';
 
 const PANEL_CSS = `
-.wrap{position:fixed;right:12px;bottom:12px;z-index:2147483647;display:flex;flex-direction:column;align-items:flex-end;gap:8px;background:none}
+.wrap{position:fixed;right:12px;top:12px;z-index:2147483647;display:flex;flex-direction:column;align-items:flex-end;gap:8px;background:none}
 .pill{display:flex;gap:6px;align-items:center;font:inherit;font-weight:700;font-size:13px;padding:8px 14px;border-radius:999px;
   border:1px solid var(--edge);background:var(--bg);color:var(--fg);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.18)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .dot.live{background:var(--danger)}
-.box{width:400px;max-width:calc(100vw - 24px);max-height:min(75vh,720px);display:flex;flex-direction:column;background:var(--bg);
+.box{width:400px;max-width:calc(100vw - 24px);max-height:min(calc(100vh - 72px),720px);display:flex;flex-direction:column;background:var(--bg);
   border:1px solid var(--edge);border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.22);overflow:hidden}
 .tabs{display:flex;border-bottom:1px solid var(--line)}
 .tab{flex:1;padding:10px;background:none;border:0;border-bottom:2px solid transparent;font:inherit;font-weight:700;color:var(--muted);cursor:pointer}
@@ -20,6 +20,8 @@ const PANEL_CSS = `
 .toggle input{margin-top:3px;accent-color:var(--accent)}
 .err{color:var(--danger);font-size:13px;font-weight:600}
 .err:empty{display:none}
+.notice{font-size:13px;font-weight:600;padding:8px 10px;border-radius:8px;background:var(--hover);border-left:3px solid var(--accent)}
+.notice:empty{display:none}
 .url{font-size:13px;overflow-wrap:anywhere}
 .feedinfo{display:grid;gap:8px}
 .pending{display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:12px}
@@ -52,7 +54,7 @@ export function mountPanel(doc, win, app) {
   tabs.append(tabShare, tabBrowse);
   const body = el(doc, 'div', 'body');
   box.append(tabs, body);
-  wrap.append(box, pill);
+  wrap.append(pill, box); // top-right corner, clear of X's Grok and Messages buttons
   root.append(style, wrap);
   doc.body.append(host);
 
@@ -60,7 +62,7 @@ export function mountPanel(doc, win, app) {
   const share = el(doc, 'div', 'share');
   // Built once; render() only updates text and visibility, so an input keeps what the user typed.
   const feedInfo = el(doc, 'div', 'feedinfo');
-  const noFeed = el(doc, 'div', 'xfs-muted', "You aren't sharing. Tick a box to create a public feed.");
+  const noFeed = el(doc, 'div', 'xfs-muted');
   const feedRow = el(doc, 'div', 'xfs-row');
   const feedLabel = el(doc, 'span', 'xfs-label');
   const renameBtn = el(doc, 'button', 'xfs-btn', 'Rename');
@@ -118,6 +120,7 @@ export function mountPanel(doc, win, app) {
     share.append(label);
   }
   const seenLine = el(doc, 'div', 'xfs-muted xfs-small');
+  const noticeLine = el(doc, 'div', 'notice');
   const errLine = el(doc, 'div', 'err');
   const btnRow = el(doc, 'div', 'xfs-row');
   const flushBtn = el(doc, 'button', 'xfs-btn', 'Upload now');
@@ -125,8 +128,8 @@ export function mountPanel(doc, win, app) {
   const delBtn = el(doc, 'button', 'xfs-btn', 'Delete my feed');
   delBtn.onclick = () => app.deleteFeed();
   btnRow.append(flushBtn, delBtn);
-  share.append(seenLine, errLine, btnRow, el(doc, 'div', 'xfs-muted xfs-small',
-    'Nothing is uploaded unless a box is ticked, and only posts you scroll past are shared. ' +
+  share.append(seenLine, noticeLine, errLine, btnRow, el(doc, 'div', 'xfs-muted xfs-small',
+    'Both boxes start ticked: the Home posts you scroll past upload as you scroll. Untick a box to stop sharing that feed. ' +
     'Ads and posts from protected accounts are never shared. Shared entries expire after 14 days.'));
 
   // Browse tab
@@ -169,6 +172,11 @@ export function mountPanel(doc, win, app) {
     const f = settings.feed;
     const show = (e, on) => { e.style.display = on ? '' : 'none'; };
     show(noFeed, !f);
+    if (!f) {
+      noFeed.textContent = app.creating ? 'Creating your public feed…'
+        : Object.values(settings.share).some(Boolean) ? 'Sharing starts when your Home timeline loads.'
+          : "You aren't sharing. Tick a box to share your feed publicly.";
+    }
     show(feedRow, f);
     show(linkRow, f);
     if (f) {
@@ -186,11 +194,13 @@ export function mountPanel(doc, win, app) {
     show(pending, isPending);
     if (isPending) pendingText.textContent = settings.verify.text;
     for (const [kind] of KIND_ORDER) {
-      toggles[kind].input.checked = app.sharing(kind);
+      toggles[kind].input.checked = !!settings.share[kind];
       toggles[kind].stat.textContent = app.sharing(kind)
         ? `${st[kind].shared} shared from this tab · ${st[kind].queued} waiting` : '';
     }
-    seenLine.textContent = `Seen in this tab: ${app.seen.following.size} Following · ${app.seen.foryou.size} For You`;
+    seenLine.textContent = `Seen in this tab: ${app.seen.following.size} Following · ${app.seen.foryou.size} For You` +
+      (live && st.lastOk ? ` · last upload ${ago(st.lastOk)}` : '');
+    noticeLine.textContent = app.notice || '';
     errLine.textContent = app.message || (st.error ? `Upload problem: ${st.error}` : '') +
       (st.pausedUntil ? ` (retrying after ${new Date(st.pausedUntil).toLocaleTimeString()})` : '');
     flushBtn.disabled = !live;

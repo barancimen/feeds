@@ -16,7 +16,8 @@ export function startApp({ win, request, store, apiOrigin }) {
   const doc = win.document;
   const api = createApi(request);
   // feed: { id, label, verified?: { handle, at } }; verify: pending { code, text, until }
-  const settings = { feed: null, share: { foryou: false, following: false }, open: false, verify: null };
+  // Both feeds are shared by default; a fresh install gets a public feed named after the logged-in @handle.
+  const settings = { feed: null, share: { foryou: true, following: true }, open: false, verify: null };
   const seen = { foryou: new Set(), following: new Set() };
   // What this tab has shown so far (memory only), so ticking a box shares the feed that's on screen.
   const recent = { foryou: [], following: [] };
@@ -26,7 +27,7 @@ export function startApp({ win, request, store, apiOrigin }) {
   const render = () => panel?.render();
 
   const app = {
-    api, settings, seen, message: null,
+    api, settings, seen, message: null, notice: null,
     sharing: k => !!settings.feed && !!settings.share[k],
     publicUrl: id => `${apiOrigin}/f/${id}`,
   };
@@ -39,10 +40,18 @@ export function startApp({ win, request, store, apiOrigin }) {
     getFeedId: () => settings.feed?.id,
     isSharing: app.sharing,
     onChange: render,
-    onAuthLost: () => {
+    onAuthLost: async () => {
+      // Another tab may have replaced the feed (e.g. two tabs on first install): adopt it and carry on.
+      const saved = await store.get(SETTINGS_KEY).catch(() => null);
+      if (saved?.feed?.id && saved.feed.id !== settings.feed?.id) {
+        applySettings(saved);
+        app.uploader.flush();
+        render();
+        return;
+      }
       settings.feed = null;
       stopSharing();
-      app.message = 'Your shared feed no longer exists, or this browser lost its publish key. Tick a box to start a new feed.';
+      app.notice = null; app.message = 'Your shared feed no longer exists, or this browser lost its publish key. Tick a box to start a new feed.';
       save();
       render();
     },
@@ -56,7 +65,10 @@ export function startApp({ win, request, store, apiOrigin }) {
       recent[kind].push(r);
     }
     if (recent[kind].length > RECENT_MAX) recent[kind].splice(0, recent[kind].length - RECENT_MAX);
-    if (loaded) app.uploader.add(kind, recs); else early.push([kind, recs]);
+    if (loaded) {
+      if (wantsFeed()) ensureFeed();
+      app.uploader.add(kind, recs);
+    } else early.push([kind, recs]);
     render();
   }, json => {
     // The user posted something. Only a post containing the pending code is sent for checking.
@@ -89,6 +101,7 @@ export function startApp({ win, request, store, apiOrigin }) {
   store.get(SETTINGS_KEY).then(applySettings).catch(() => {}).finally(() => {
     loaded = true;
     for (const [k, recs] of early) app.uploader.add(k, recs);
+    if (early.length && wantsFeed()) ensureFeed();
     early = [];
     render();
   });
@@ -99,23 +112,55 @@ export function startApp({ win, request, store, apiOrigin }) {
     return m ? '@' + m[1] : '';
   }
 
+  // The profile link appears a moment after the timeline starts loading.
+  async function guessLabelSoon() {
+    for (let i = 0; i < 20; i++) {
+      const l = guessLabel();
+      if (l) return l;
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return 'anonymous';
+  }
+
+  const wantsFeed = () => !settings.feed && KINDS.some(k => settings.share[k]);
+  let creating = null;
+  let createFailedAt = 0;
+
+  // Creates the public feed the first time there is something to share (no prompt; it can be renamed).
+  function ensureFeed(force = false) {
+    if (creating || !wantsFeed() || (!force && Date.now() - createFailedAt < 60000)) return creating;
+    app.creating = true;
+    creating = (async () => {
+      const saved = await store.get(SETTINGS_KEY).catch(() => null);
+      if (saved?.feed?.id) applySettings(saved); // another tab just made one
+      if (wantsFeed()) {
+        const f = await api.createFeed(await guessLabelSoon());
+        settings.feed = { id: f.id, label: f.label };
+        app.message = null;
+        app.notice = `Sharing is on: your Following and For You feeds are public as “${f.label}”. Untick a box to stop, or rename the feed.`;
+        await save();
+      }
+      for (const k of KINDS) app.uploader.add(k, recent[k]);
+    })().catch(e => {
+      createFailedAt = Date.now();
+      app.notice = null; app.message = `Could not create your public feed: ${e.message}`;
+    }).finally(() => {
+      creating = null;
+      app.creating = false;
+      render();
+    });
+    render();
+    return creating;
+  }
+
   app.toggleShare = async (kind, on) => {
     app.message = null;
-    if (on && !settings.feed) {
-      const label = win.prompt('Name your public feed. Anyone can see this name, and it is not verified:', guessLabel());
-      if (label === null) { render(); return; }
-      try {
-        const f = await api.createFeed(label);
-        settings.feed = { id: f.id, label: f.label };
-      } catch (e) {
-        app.message = `Could not create a feed: ${e.message}`;
-        render();
-        return;
-      }
-    }
+    app.notice = null;
     settings.share[kind] = on;
-    if (on) app.uploader.add(kind, recent[kind]); else app.uploader.clear(kind);
+    if (!on) app.uploader.clear(kind);
     await save();
+    if (on && settings.feed) app.uploader.add(kind, recent[kind]);
+    if (on && !settings.feed) await ensureFeed(true);
     render();
   };
 
@@ -127,7 +172,7 @@ export function startApp({ win, request, store, apiOrigin }) {
       const f = await api.rename(settings.feed.id, label);
       settings.feed.label = f.label;
       await save();
-    } catch (e) { app.message = `Rename failed: ${e.message}`; }
+    } catch (e) { app.notice = null; app.message = `Rename failed: ${e.message}`; }
     render();
   };
 
@@ -138,9 +183,10 @@ export function startApp({ win, request, store, apiOrigin }) {
       await api.remove(settings.feed.id);
       settings.feed = null;
       stopSharing();
-      app.message = 'Feed deleted.';
+      app.message = null;
+      app.notice = 'Feed deleted.';
       await save();
-    } catch (e) { app.message = `Delete failed: ${e.message}`; }
+    } catch (e) { app.notice = null; app.message = `Delete failed: ${e.message}`; }
     render();
   };
 
@@ -148,12 +194,13 @@ export function startApp({ win, request, store, apiOrigin }) {
   app.startVerify = async () => {
     if (!settings.feed) return;
     app.message = null;
+    app.notice = null;
     try {
       const v = await api.startVerify(settings.feed.id);
       settings.verify = { code: v.code, text: v.text, until: v.expires_at };
       await save();
       app.openComposer();
-    } catch (e) { app.message = `Could not start verification: ${e.message}`; }
+    } catch (e) { app.notice = null; app.message = `Could not start verification: ${e.message}`; }
     render();
   };
 
@@ -165,6 +212,7 @@ export function startApp({ win, request, store, apiOrigin }) {
   app.cancelVerify = async () => {
     settings.verify = null;
     app.message = null;
+    app.notice = null;
     await save();
     render();
   };
@@ -173,21 +221,23 @@ export function startApp({ win, request, store, apiOrigin }) {
   app.checkVerify = async tweetId => {
     if (!settings.feed || !settings.verify || checking) return;
     checking = true;
-    app.message = 'Checking your post with X…';
+    app.message = null;
+    app.notice = 'Checking your post with X…';
     render();
     for (let i = 0; ; i++) {
       try {
         const r = await api.checkVerify(settings.feed.id, tweetId);
         settings.feed.verified = { handle: r.verified_handle, at: r.verified_at };
         settings.verify = null;
-        app.message = `Verified as @${r.verified_handle}. You can delete the verification post now.`;
+        app.message = null;
+        app.notice = `Verified as @${r.verified_handle}. You can delete the verification post now.`;
         break;
       } catch (e) {
         if ([404, 429, 502].includes(e.status) && i < VERIFY_RETRY_MS.length) {
           await new Promise(res => setTimeout(res, e.retryAfter ? e.retryAfter * 1000 : VERIFY_RETRY_MS[i]));
           continue;
         }
-        app.message = `Verification failed: ${e.message}`;
+        app.notice = null; app.message = `Verification failed: ${e.message}`;
         break;
       }
     }
@@ -200,7 +250,7 @@ export function startApp({ win, request, store, apiOrigin }) {
   app.checkVerifyLink = text => {
     const s = String(text).trim();
     const m = s.match(/\/status(?:es)?\/(\d{1,20})/) || s.match(/^(\d{1,20})$/);
-    if (!m) { app.message = 'Paste the link to your post, like https://x.com/you/status/123…'; render(); return; }
+    if (!m) { app.notice = null; app.message = 'Paste the link to your post, like https://x.com/you/status/123…'; render(); return; }
     app.checkVerify(m[1]);
   };
 
