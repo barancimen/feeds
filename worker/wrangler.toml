@@ -2,11 +2,11 @@ name = "x-feed-share"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
-# Create with `npx wrangler d1 create xfeeds` and paste the id here. Any id works for --local.
+# Created with `npx wrangler d1 create xfeeds`. Local dev (--local) uses its own copy.
 [[d1_databases]]
 binding = "DB"
 database_name = "xfeeds"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "d1680c6f-b523-466f-8829-091d7a50ada8"
 
 # Daily expiry and garbage collection.
 [triggers]

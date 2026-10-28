@@ -9,7 +9,7 @@
     "test": "node --test test/*.test.js",
     "test:worker": "node test/worker-smoke.mjs",
     "dev:worker": "node build.mjs && cd worker && wrangler dev --local",
-    "deploy": "node build.mjs && cd worker && wrangler deploy"
+    "deploy": "node build.mjs --api https://x-feed-share.barancimen321321.workers.dev && cd worker && wrangler deploy"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

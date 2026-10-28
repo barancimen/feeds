@@ -6,6 +6,10 @@ panel on x.com, or on a public web page that needs nothing installed.
 - **Widget**: one core, shipped as a userscript (Tampermonkey / Violentmonkey) and a Chrome MV3 extension.
 - **Backend**: one Cloudflare Worker + D1. Public reads, token-authenticated writes, 14-day retention.
 
+**Live:** https://x-feed-share.barancimen321321.workers.dev. Install the userscript from
+[`/x-feed-share.user.js`](https://x-feed-share.barancimen321321.workers.dev/x-feed-share.user.js).
+Redeploy with `npm run deploy`, which builds against the live URL.
+
 ## How it works
 
 1. The widget wraps `fetch`/`XMLHttpRequest` in the page and reads the `HomeTimeline` (For You) and
