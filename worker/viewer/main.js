@@ -71,7 +71,7 @@ s1.append(ext('https://www.tampermonkey.net/', 'Tampermonkey'), document.createT
 const s2 = el(document, 'li', null, 'Click “Install the userscript” above, then Install in the dialog that opens.');
 const s3 = el(document, 'li', null,
   'Chrome only: open Tampermonkey’s extension details (chrome://extensions) and turn on “Allow User Scripts”.');
-const s4 = el(document, 'li', null, 'Open x.com/home and click “Feeds” in the bottom-right corner.');
+const s4 = el(document, 'li', null, 'Open x.com/home and click “Feeds” in the top-right corner.');
 steps.append(s1, s2, s3, s4);
 const how = el(document, 'details');
 how.append(el(document, 'summary', null, 'How to install (about 2 minutes)'), steps);
