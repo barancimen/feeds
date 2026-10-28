@@ -1,35 +1,152 @@
-// Directory and feed views, shared by the on-x.com panel and the public web page.
+// Directory, feed and search views, shared by the on-x.com panel and the public web page.
+// `nav` = { home(), openFeed(id, kind?), search(q, feedId?, feedLabel?) } lets each host route its own way.
 
 import { ago, el, renderTweet, sessionLabel } from './render.js';
 
 const KIND_TABS = [['following', 'Following'], ['foryou', 'For You']];
+const KIND_NAME = Object.fromEntries(KIND_TABS);
 
-export async function renderDirectory(doc, mount, api, open) {
-  mount.replaceChildren(el(doc, 'div', 'xfs-note', 'Loading shared feeds…'));
-  let data;
-  try { data = await api.listFeeds(); } catch (e) {
-    mount.replaceChildren(el(doc, 'div', 'xfs-note', `Could not load feeds: ${e.message}`));
-    return;
-  }
-  mount.replaceChildren();
-  if (!data.feeds.length) { mount.append(el(doc, 'div', 'xfs-note', 'No feeds shared in the last 14 days.')); return; }
-  for (const f of data.feeds) {
-    const b = el(doc, 'button', 'xfs-feed');
-    const kinds = KIND_TABS.filter(([k]) => f[`${k}_at`]).map(([, name]) => name).join(' · ');
-    b.append(el(doc, 'div', 'xfs-label', f.label), el(doc, 'div', 'xfs-muted xfs-small', `${kinds} · active ${ago(f.last_push_at)}`));
-    b.onclick = () => open(f.id);
-    mount.append(b);
-  }
+function errorText(e) {
+  if (e.status === 400) return 'Type at least one word to search for.';
+  if (e.status === 429) return 'Too many requests. Wait a minute and try again.';
+  return e.message;
 }
 
-// opts: { kind, back(), onKind(kind), shareUrl }
+function searchForm(doc, placeholder, value, onSubmit) {
+  const form = el(doc, 'form', 'xfs-search');
+  const input = el(doc, 'input');
+  input.type = 'search';
+  input.placeholder = placeholder;
+  input.value = value || '';
+  input.maxLength = 200;
+  input.setAttribute('aria-label', placeholder);
+  // Keep keystrokes away from the page: x.com binds single-letter shortcuts on the document.
+  for (const t of ['keydown', 'keyup', 'keypress']) input.addEventListener(t, e => e.stopPropagation());
+  const button = el(doc, 'button', 'xfs-btn', 'Search');
+  button.type = 'submit';
+  form.append(input, button);
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const q = input.value.trim();
+    if (q) onSubmit(q);
+  });
+  return form;
+}
+
+const moreButton = doc => el(doc, 'button', 'xfs-btn xfs-more', 'Load more');
+
+function feedButton(doc, f, nav) {
+  const b = el(doc, 'button', 'xfs-feed');
+  const kinds = KIND_TABS.filter(([k]) => f[`${k}_at`]).map(([, name]) => name).join(' · ');
+  b.append(el(doc, 'div', 'xfs-label', f.label),
+    el(doc, 'div', 'xfs-muted xfs-small', `${kinds || 'No recent posts'} · active ${ago(f.last_push_at)}`));
+  b.onclick = () => nav.openFeed(f.id);
+  return b;
+}
+
+export async function renderDirectory(doc, mount, api, nav) {
+  const list = el(doc, 'div');
+  const more = moreButton(doc);
+  mount.replaceChildren(searchForm(doc, 'Search posts and feed names', '', q => nav.search(q)), list);
+  list.append(el(doc, 'div', 'xfs-note', 'Loading shared feeds…'));
+  let next = null;
+  async function load(first) {
+    more.disabled = true;
+    let data;
+    try { data = await api.listFeeds({ before: next }); } catch (e) {
+      if (first) list.replaceChildren(el(doc, 'div', 'xfs-note', `Could not load feeds: ${errorText(e)}`));
+      else { more.disabled = false; more.textContent = 'Retry'; }
+      return;
+    }
+    if (first) list.replaceChildren();
+    more.remove();
+    if (first && !data.feeds.length) list.append(el(doc, 'div', 'xfs-note', 'No feeds shared in the last 14 days.'));
+    for (const f of data.feeds) list.append(feedButton(doc, f, nav));
+    next = data.next;
+    more.textContent = 'Load more';
+    more.disabled = false;
+    if (next) list.append(more);
+  }
+  more.onclick = () => load(false);
+  await load(true);
+}
+
+// opts: { feed, feedLabel } to search within one feed.
+export async function renderSearch(doc, mount, api, q, nav, opts = {}) {
+  const { feed, feedLabel } = opts;
+  const top = el(doc, 'div', 'xfs-feedhead');
+  const back = el(doc, 'button', 'xfs-btn', feed ? '← Back to feed' : '← All feeds');
+  back.onclick = () => (feed ? nav.openFeed(feed) : nav.home());
+  const row = el(doc, 'div', 'xfs-row');
+  row.append(back);
+  if (feed) row.append(el(doc, 'span', 'xfs-muted', `Searching in ${feedLabel || 'one feed'}`));
+  top.append(row);
+  const feedsBox = el(doc, 'div');
+  const posts = el(doc, 'div');
+  const more = moreButton(doc);
+  mount.replaceChildren(searchForm(doc, feed ? 'Search this feed' : 'Search posts and feed names', q,
+    nq => nav.search(nq, feed, feedLabel)), top, feedsBox, posts);
+  posts.append(el(doc, 'div', 'xfs-note', 'Searching…'));
+
+  if (!feed) {
+    api.listFeeds({ q, limit: 10 }).then(data => {
+      if (!data.feeds.length) return;
+      feedsBox.append(el(doc, 'div', 'xfs-h', 'Feeds'));
+      for (const f of data.feeds) feedsBox.append(feedButton(doc, f, nav));
+      feedsBox.append(el(doc, 'div', 'xfs-h', 'Posts'));
+    }, () => {});
+  }
+
+  let offset = 0;
+  async function load(first) {
+    more.disabled = true;
+    let data;
+    try { data = await api.search(q, { feed, offset }); } catch (e) {
+      if (first) posts.replaceChildren(el(doc, 'div', 'xfs-note', `Search failed: ${errorText(e)}`));
+      else { more.disabled = false; more.textContent = 'Retry'; }
+      return;
+    }
+    if (first) posts.replaceChildren();
+    more.remove();
+    if (first && !data.results.length) {
+      posts.append(el(doc, 'div', 'xfs-note', `No posts match “${q}” in the last 14 days.`));
+    }
+    for (const r of data.results) {
+      const card = renderTweet(doc, r.tweet);
+      if (!card) continue;
+      card.append(seenLine(doc, r.seen, nav, !!feed));
+      posts.append(card);
+    }
+    offset = data.next;
+    more.textContent = 'Load more';
+    more.disabled = false;
+    if (offset != null) posts.append(more);
+  }
+  more.onclick = () => load(false);
+  await load(true);
+}
+
+function seenLine(doc, seen, nav, scoped) {
+  const line = el(doc, 'div', 'xfs-seen', scoped ? 'Seen ' : 'Seen in ');
+  const shown = scoped ? seen.slice(0, 1) : seen.slice(0, 3);
+  for (const s of shown) {
+    const text = scoped ? `${KIND_NAME[s.kind] || s.kind} · ${ago(s.session)}` : `${s.label} · ${KIND_NAME[s.kind] || s.kind} · ${ago(s.session)}`;
+    const chip = el(doc, 'button', 'xfs-chip', text);
+    chip.onclick = () => nav.openFeed(s.feed_id, s.kind);
+    line.append(chip);
+  }
+  if (!scoped && seen.length > shown.length) line.append(el(doc, 'span', null, `+${seen.length - shown.length} more`));
+  return line;
+}
+
+// opts: { kind, back(), onKind(kind), shareUrl, onSearch(q, label) }
 export async function renderFeed(doc, mount, api, id, opts = {}) {
   let kind = opts.kind || null;
   let next = null;
   let lastSession = null;
   const head = el(doc, 'div', 'xfs-feedhead');
   const list = el(doc, 'div');
-  const more = el(doc, 'button', 'xfs-btn xfs-more', 'Load more');
+  const more = moreButton(doc);
   mount.replaceChildren(el(doc, 'div', 'xfs-note', 'Loading…'));
 
   function drawHead(feed) {
@@ -56,6 +173,7 @@ export async function renderFeed(doc, mount, api, id, opts = {}) {
     }
     head.replaceChildren(top, tabs, el(doc, 'div', 'xfs-muted xfs-small',
       'The name is self-described. Posts are shown as the publisher uploaded them; open one on X to verify it. Entries expire after 14 days.'));
+    if (opts.onSearch) head.append(searchForm(doc, 'Search this feed', '', q => opts.onSearch(q, feed.label)));
   }
 
   async function load(reset) {

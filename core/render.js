@@ -43,6 +43,16 @@ export const CSS = `
   background:none;color:inherit;font:inherit;cursor:pointer}
 .xfs-feed:hover{background:var(--hover)}
 .xfs-label{font-weight:700;overflow-wrap:anywhere}
+.xfs-search{display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.xfs-feedhead .xfs-search{padding:0;border:0}
+.xfs-search input{flex:1;min-width:0;font:inherit;padding:6px 12px;border-radius:999px;border:1px solid var(--line);
+  background:var(--hover);color:var(--fg);outline:none}
+.xfs-search input:focus{border-color:var(--accent);background:var(--bg)}
+.xfs-h{padding:12px 14px 4px;font-weight:700;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line)}
+.xfs-seen{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 0 50px;font-size:12px;color:var(--muted)}
+.xfs-chip{font:inherit;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:none;
+  color:var(--fg);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.xfs-chip:hover{background:var(--hover)}
 `;
 
 export function el(doc, tag, cls, text) {

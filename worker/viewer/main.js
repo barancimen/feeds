@@ -1,7 +1,7 @@
-// Public read-only viewer served by the Worker at / and /f/<id>.
+// Public read-only viewer served by the Worker at /, /?q=<search> and /f/<id>.
 
 import { createApi } from '../../core/api.js';
-import { renderDirectory, renderFeed } from '../../core/browse.js';
+import { renderDirectory, renderFeed, renderSearch } from '../../core/browse.js';
 import { CSS, el } from '../../core/render.js';
 
 const api = createApi(async (method, path, body) => {
@@ -48,26 +48,39 @@ const mount = el(document, 'main');
 page.append(top, mount);
 document.getElementById('app').replaceWith(page);
 
-function go(path) {
-  history.pushState(null, '', path);
+function go(path, state = null) {
+  history.pushState(state, '', path);
   route();
 }
 
-home.onclick = e => { e.preventDefault(); go('/'); };
+const nav = {
+  home: () => go('/'),
+  openFeed: (id, kind) => go(`/f/${id}${kind ? `?kind=${kind}` : ''}`),
+  search: (q, feed, feedLabel) => go(`/?${new URLSearchParams(feed ? { q, feed } : { q })}`, { feedLabel }),
+};
+
+home.onclick = e => { e.preventDefault(); nav.home(); };
 
 function route() {
+  scrollTo(0, 0);
+  const params = new URLSearchParams(location.search);
   const m = location.pathname.match(/^\/f\/([a-z0-9]{10})$/);
-  if (!m) {
-    document.title = 'Shared X Feeds';
-    renderDirectory(document, mount, api, id => go(`/f/${id}`));
-    return;
+  const q = params.get('q');
+  document.title = q ? `“${q}” · Shared X Feeds` : 'Shared X Feeds';
+  if (m) {
+    renderFeed(document, mount, api, m[1], {
+      kind: params.get('kind'),
+      back: nav.home,
+      onKind: k => history.replaceState(null, '', `/f/${m[1]}?kind=${k}`),
+      onSearch: (sq, label) => nav.search(sq, m[1], label),
+    });
+  } else if (q) {
+    const feed = params.get('feed');
+    renderSearch(document, mount, api, q, nav,
+      { feed: /^[a-z0-9]{10}$/.test(feed || '') ? feed : null, feedLabel: history.state?.feedLabel });
+  } else {
+    renderDirectory(document, mount, api, nav);
   }
-  const kind = new URLSearchParams(location.search).get('kind');
-  renderFeed(document, mount, api, m[1], {
-    kind,
-    back: () => go('/'),
-    onKind: k => history.replaceState(null, '', `/f/${m[1]}?kind=${k}`),
-  });
 }
 
 addEventListener('popstate', route);

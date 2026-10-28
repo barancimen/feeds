@@ -4,7 +4,7 @@
 export const TOKEN_KEY = 'xfs_token';
 
 const METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE']);
-const PATH_RE = /^\/api\/feeds(\/[a-z0-9]{10}(\/items)?)?(\?[A-Za-z0-9=&._%-]*)?$/;
+const PATH_RE = /^\/api\/(feeds(\/[a-z0-9]{10}(\/items)?)?|search)(\?[A-Za-z0-9=&._%-]*)?$/;
 
 // doFetch(method, path, body, token) -> {status, data}; store: {get(key), set(key, value)} (async)
 export function createPrivilegedRequest(doFetch, store) {

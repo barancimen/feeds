@@ -16,6 +16,19 @@ panel on x.com, or on a public web page that needs nothing installed.
 3. Posts are uploaded in order every 30 s as small records (text, author handle/name/avatar, media
    thumbnails, quoted/retweeted post). Ads and posts by protected accounts are never captured.
 4. Anyone can browse: the panel's **Browse** tab, or `https://<worker>/` and `https://<worker>/f/<feed-id>`.
+5. Anyone can search: posts across every shared feed (text, retweeted/quoted text, author names and
+   handles) or within one feed, and feeds by name (`https://<worker>/?q=…`). Each result says which
+   feeds it was seen in. Results are per stored copy, so an altered copy is only ever attributed to the
+   feed that uploaded it.
+
+## API
+
+| Route | |
+|---|---|
+| `GET /api/feeds?q=&before=&limit=` | Recently active feeds, newest first; `q` filters by name, `before` is the `next` cursor |
+| `GET /api/feeds/:id?kind=&before=&limit=` | One feed's entries, newest session first |
+| `GET /api/search?q=&feed=&kind=&offset=&limit=` | Full-text post search (words AND-ed, last word is a prefix) |
+| `POST /api/feeds` · `POST /api/feeds/:id/items` · `PATCH`/`DELETE /api/feeds/:id` | Create, upload (Bearer token), rename, delete |
 
 ## Deploy
 
@@ -71,7 +84,8 @@ build.mjs    esbuild -> dist/x-feed-share.user.js, dist/extension/, worker/src/*
   copy of a post, never what another feed shows.
 - Everything from the server is re-validated before rendering and built with `textContent`; images load only
   from `pbs.twimg.com`/`abs.twimg.com`. The public page sends a strict CSP.
-- Limits: 2 feed creations/min per IP, 10 uploads/min and 5,000 posts/day per feed, 100 posts per upload,
-  newest 1,000 entries per feed and kind, 14-day expiry (daily cron).
-- Not in v1: verifying that a feed belongs to a given X account, an opt-out list for authors, list timelines,
-  search. If feed creation gets abused, put Turnstile in front of `POST /api/feeds`.
+- Limits: 2 feed creations/min per IP, 30 searches/min per IP, 10 uploads/min and 5,000 posts/day per feed,
+  100 posts per upload, newest 1,000 entries per feed and kind, 14-day expiry (daily cron). A search looks
+  at the 2,000 newest matching copies, which bounds its cost.
+- Not yet: verifying that a feed belongs to a given X account, an opt-out list for authors, list timelines.
+  If feed creation gets abused, put Turnstile in front of `POST /api/feeds`.

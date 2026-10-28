@@ -9,7 +9,10 @@ export class ApiError extends Error {
   }
 }
 
-const enc = encodeURIComponent;
+// Stricter than encodeURIComponent, so every query string stays within the host's path allowlist.
+const enc = s => encodeURIComponent(s).replace(/[!'()*~]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+const qs = params => Object.entries(params).filter(([, v]) => v != null && v !== '')
+  .map(([k, v]) => `${k}=${enc(String(v))}`).join('&');
 
 export function createApi(request) {
   const call = async (method, path, body = null, auth = false) => {
@@ -18,7 +21,8 @@ export function createApi(request) {
     return data;
   };
   return {
-    listFeeds: (limit = 50) => call('GET', `/api/feeds?limit=${limit}`),
+    listFeeds: ({ q, before, limit = 50 } = {}) => call('GET', `/api/feeds?${qs({ limit, q, before })}`),
+    search: (q, { feed, kind, offset, limit = 20 } = {}) => call('GET', `/api/search?${qs({ q, feed, kind, offset, limit })}`),
     getFeed: (id, kind, before, limit = 30) => call('GET', `/api/feeds/${enc(id)}?limit=${limit}` +
       (kind ? `&kind=${enc(kind)}` : '') + (before ? `&before=${enc(before)}` : '')),
     createFeed: label => call('POST', '/api/feeds', { label }),

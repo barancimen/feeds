@@ -1,6 +1,6 @@
 // The on-x.com widget: a pill in the corner that opens a Share / Browse panel (closed Shadow DOM).
 
-import { renderDirectory, renderFeed } from './browse.js';
+import { renderDirectory, renderFeed, renderSearch } from './browse.js';
 import { CSS, el } from './render.js';
 
 const PANEL_CSS = `
@@ -84,8 +84,16 @@ export function mountPanel(doc, win, app) {
 
   // Browse tab
   const browse = el(doc, 'div');
-  const openDirectory = () => renderDirectory(doc, browse, app.api, openFeed);
-  const openFeed = id => renderFeed(doc, browse, app.api, id, { back: openDirectory, shareUrl: app.publicUrl(id) });
+  const nav = {
+    home: () => { body.scrollTop = 0; return renderDirectory(doc, browse, app.api, nav); },
+    openFeed: (id, kind) => {
+      body.scrollTop = 0;
+      return renderFeed(doc, browse, app.api, id,
+        { kind, back: nav.home, shareUrl: app.publicUrl(id), onSearch: (q, label) => nav.search(q, id, label) });
+    },
+    search: (q, feed, feedLabel) => { body.scrollTop = 0; return renderSearch(doc, browse, app.api, q, nav, { feed, feedLabel }); },
+  };
+  const openDirectory = nav.home;
 
   let tab = 'share';
   function showTab(t) {
