@@ -47,6 +47,7 @@ test('search view lists feeds and posts, links "seen in" chips to feeds, and kee
   await renderSearch(document, mount, api, 'jerry', nav);
   await tick();
 
+  assert.match(mount.querySelector('.xfs-scope').textContent, /^Results from all shared feeds\. To search one person’s feed only/);
   assert.deepEqual(calls[0], ['feeds', { q: 'jerry', limit: 10 }]);
   assert.deepEqual(calls[1], ['search', 'jerry', { feed: undefined, offset: 0 }]);
   assert.equal(mount.querySelectorAll('.xfs-feed').length, 1);
@@ -79,7 +80,7 @@ test('scoped search skips feed-name results and shows one chip per post', async 
   const mount = document.getElementById('m');
   await renderSearch(document, mount, api, 'x', { home() {}, openFeed() {}, search() {} }, { feed: 'feedaaaaaa', feedLabel: 'a' });
   assert.equal(mount.querySelectorAll('.xfs-feed').length, 0);
-  assert.match(mount.querySelector('.xfs-chip').textContent, /^For You · /);
+  assert.match(mount.querySelector('.xfs-seen .xfs-chip').textContent, /^For You · /);
   assert.equal(mount.querySelector('.xfs-more').textContent, 'Load more');
-  assert.match(mount.textContent, /Searching in a/);
+  assert.match(mount.querySelector('.xfs-scope').textContent, /^Results only from aSearch all feeds instead$/);
 });

@@ -4,14 +4,15 @@
 import { cleanRecord, safeHttpUrl } from './safe.js';
 
 export const CSS = `
-.xfs{--bg:#fff;--fg:#0f1419;--muted:#536471;--line:#eff3f4;--hover:#f7f9f9;--accent:#1d9bf0;--danger:#f4212e;
-  font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
-.xfs.dark{--bg:#000;--fg:#e7e9ea;--muted:#71767b;--line:#2f3336;--hover:#16181c}
+/* Contrast (WCAG): text and links >= 7:1 on --bg and --hover, control outlines (--edge) >= 3:1. */
+.xfs{--bg:#fff;--fg:#0f1419;--muted:#38444d;--line:#cfd9de;--edge:#77858f;--hover:#eef2f5;--accent:#0a58a8;--danger:#c0111f;
+  font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.xfs.dark{--bg:#000;--fg:#f4f6f7;--muted:#b6bec5;--line:#3a4046;--edge:#7c8790;--hover:#16181c;--accent:#5ab8ff;--danger:#ff7070}
 .xfs *{box-sizing:border-box}
 .xfs a{color:var(--accent);text-decoration:none}
 .xfs a:hover{text-decoration:underline}
 .xfs-card{padding:12px 14px;border-bottom:1px solid var(--line)}
-.xfs-rt{color:var(--muted);font-size:13px;margin:0 0 4px 50px}
+.xfs-rt{color:var(--muted);font-size:14px;margin:0 0 4px 50px}
 .xfs-rt a{color:inherit;font-weight:600}
 .xfs-tweet{display:grid;grid-template-columns:40px minmax(0,1fr);gap:0 10px}
 .xfs-av{width:40px;height:40px;border-radius:50%;background:var(--line);display:block;object-fit:cover}
@@ -20,7 +21,7 @@ export const CSS = `
 .xfs-name{font-weight:700;color:var(--fg)!important;overflow:hidden;text-overflow:ellipsis}
 .xfs-handle,.xfs-time,.xfs-muted{color:var(--muted)!important}
 .xfs-handle{overflow:hidden;text-overflow:ellipsis}
-.xfs-reply{color:var(--muted);font-size:13px}
+.xfs-reply{color:var(--muted);font-size:14px}
 .xfs-text{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px}
 .xfs-media{display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid var(--line)}
 .xfs-media.n1{grid-template-columns:1fr}
@@ -28,32 +29,36 @@ export const CSS = `
 .xfs-media img{width:100%;height:100%;object-fit:cover;display:block}
 .xfs-play{position:absolute;inset:0;display:grid;place-items:center;font-size:28px;color:#fff;text-shadow:0 1px 6px #000}
 .xfs-quote{border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-top:8px}
-.xfs-session{padding:6px 14px;font-size:12px;color:var(--muted);background:var(--hover);border-bottom:1px solid var(--line)}
+.xfs-session{padding:6px 14px;font-size:13px;font-weight:600;color:var(--muted);background:var(--hover);border-bottom:1px solid var(--line)}
 .xfs-note{padding:16px 14px;color:var(--muted)}
-.xfs-small{font-size:12px}
+.xfs-small{font-size:13px}
 .xfs-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.xfs-btn{font:inherit;font-size:13px;font-weight:600;padding:5px 12px;border-radius:999px;border:1px solid var(--line);
+.xfs-btn{font:inherit;font-size:14px;font-weight:700;padding:5px 12px;border-radius:999px;border:1px solid var(--edge);
   background:var(--bg);color:var(--fg);cursor:pointer}
 .xfs-btn:hover{background:var(--hover)}
 .xfs-btn.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
-.xfs-btn:disabled{opacity:.5;cursor:default}
+.xfs-btn:disabled{opacity:.55;cursor:default}
 .xfs-more{display:block;margin:12px auto}
 .xfs-feedhead{padding:12px 14px;border-bottom:1px solid var(--line);display:grid;gap:8px}
 .xfs-feed{display:block;width:100%;text-align:left;padding:10px 14px;border:0;border-bottom:1px solid var(--line);
   background:none;color:inherit;font:inherit;cursor:pointer}
 .xfs-feed:hover{background:var(--hover)}
 .xfs-label{font-weight:700;overflow-wrap:anywhere}
-.xfs-search{display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
-.xfs-feedhead .xfs-search{padding:0;border:0}
-.xfs-search input{flex:1;min-width:0;font:inherit;padding:6px 12px;border-radius:999px;border:1px solid var(--line);
+.xfs-searchbox{display:grid;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.xfs-search{display:flex;gap:8px}
+.xfs-search input{flex:1;min-width:0;font:inherit;padding:6px 12px;border-radius:999px;border:1px solid var(--edge);
   background:var(--hover);color:var(--fg);outline:none}
-.xfs-search input:focus{border-color:var(--accent);background:var(--bg)}
-.xfs-h{padding:12px 14px 4px;font-weight:700;font-size:13px;color:var(--muted);border-bottom:1px solid var(--line)}
-.xfs-seen{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 0 50px;font-size:12px;color:var(--muted)}
-.xfs-chip{font:inherit;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:none;
+.xfs-search input::placeholder{color:var(--muted);opacity:1}
+.xfs-search input:focus{border-color:var(--accent);background:var(--bg);box-shadow:0 0 0 1px var(--accent)}
+.xfs-scope{font-size:13px;color:var(--muted)}
+.xfs-scope .xfs-chip{margin-left:6px}
+.xfs-scope b{color:var(--fg)}
+.xfs-h{padding:12px 14px 4px;font-weight:700;font-size:14px;color:var(--muted);border-bottom:1px solid var(--line)}
+.xfs-seen{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 0 50px;font-size:13px;color:var(--muted)}
+.xfs-chip{font:inherit;font-size:13px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid var(--edge);background:none;
   color:var(--fg);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xfs-chip:hover{background:var(--hover)}
-.xfs-badge{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:var(--accent)!important;white-space:nowrap}
+.xfs-badge{display:inline-flex;align-items:center;gap:3px;font-size:13px;font-weight:700;color:var(--accent)!important;white-space:nowrap}
 `;
 
 // Keep keystrokes in our inputs away from the page: x.com binds single-letter shortcuts on the document.

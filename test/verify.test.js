@@ -32,7 +32,7 @@ test('rejects oEmbed answers that do not look like a single post by an account',
 
 test('codes: format, whole-word match, HTML decoding', () => {
   const code = makeCode();
-  assert.match(code, /^[a-hj-km-np-z2-9]{8}$/);
+  assert.match(code, /^[a-km-np-z2-9]{8}$/); // no l/o: they look like 1/0
   assert.ok(hasCode(verifyText(code), code));
   assert.ok(hasCode(`code:${code}!`, code));
   assert.ok(hasCode(`CODE ${code.toUpperCase()}`, code));

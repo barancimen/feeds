@@ -6,11 +6,11 @@ import { CSS, el, isolateKeys } from './render.js';
 const PANEL_CSS = `
 .wrap{position:fixed;right:12px;bottom:12px;z-index:2147483647;display:flex;flex-direction:column;align-items:flex-end;gap:8px;background:none}
 .pill{display:flex;gap:6px;align-items:center;font:inherit;font-weight:700;font-size:13px;padding:8px 14px;border-radius:999px;
-  border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.18)}
+  border:1px solid var(--edge);background:var(--bg);color:var(--fg);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.18)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .dot.live{background:var(--danger)}
-.box{width:380px;max-width:calc(100vw - 24px);max-height:min(75vh,720px);display:flex;flex-direction:column;background:var(--bg);
-  border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.22);overflow:hidden}
+.box{width:400px;max-width:calc(100vw - 24px);max-height:min(75vh,720px);display:flex;flex-direction:column;background:var(--bg);
+  border:1px solid var(--edge);border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.22);overflow:hidden}
 .tabs{display:flex;border-bottom:1px solid var(--line)}
 .tab{flex:1;padding:10px;background:none;border:0;border-bottom:2px solid transparent;font:inherit;font-weight:700;color:var(--muted);cursor:pointer}
 .tab.on{color:var(--fg);border-bottom-color:var(--accent)}
@@ -18,12 +18,11 @@ const PANEL_CSS = `
 .share{padding:12px 14px;display:grid;gap:12px}
 .toggle{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
 .toggle input{margin-top:3px;accent-color:var(--accent)}
-.err{color:var(--danger);font-size:12px}
+.err{color:var(--danger);font-size:13px;font-weight:600}
 .err:empty{display:none}
-.url{font-size:12px;overflow-wrap:anywhere}
+.url{font-size:13px;overflow-wrap:anywhere}
 .feedinfo{display:grid;gap:8px}
 .pending{display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:12px}
-.pending .xfs-search{padding:0;border:0}
 .code{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px;border-radius:8px;background:var(--hover);overflow-wrap:anywhere;user-select:all}
 `;
 

@@ -33,6 +33,8 @@ function searchForm(doc, placeholder, value, onSubmit) {
   return form;
 }
 
+const searchBox = (doc, ...parts) => { const b = el(doc, 'div', 'xfs-searchbox'); b.append(...parts); return b; };
+
 const moreButton = doc => el(doc, 'button', 'xfs-btn xfs-more', 'Load more');
 
 // "✓ @handle" for feeds whose publisher proved control of that X account. A link where allowed.
@@ -59,7 +61,9 @@ function feedButton(doc, f, nav) {
 export async function renderDirectory(doc, mount, api, nav) {
   const list = el(doc, 'div');
   const more = moreButton(doc);
-  mount.replaceChildren(searchForm(doc, 'Search posts and feed names', '', q => nav.search(q)), list);
+  const hint = el(doc, 'div', 'xfs-scope', 'Searches posts in every shared feed, and feed names. ' +
+    'To search just one person’s feed, open it and use its own search box.');
+  mount.replaceChildren(searchBox(doc, searchForm(doc, 'Search all feeds', '', q => nav.search(q)), hint), list);
   list.append(el(doc, 'div', 'xfs-note', 'Loading shared feeds…'));
   let next = null;
   async function load(first) {
@@ -91,13 +95,22 @@ export async function renderSearch(doc, mount, api, q, nav, opts = {}) {
   back.onclick = () => (feed ? nav.openFeed(feed) : nav.home());
   const row = el(doc, 'div', 'xfs-row');
   row.append(back);
-  if (feed) row.append(el(doc, 'span', 'xfs-muted', `Searching in ${feedLabel || 'one feed'}`));
   top.append(row);
+  // Always say what is being searched, and offer the other scope.
+  const scope = el(doc, 'div', 'xfs-scope');
+  if (feed) {
+    const all = el(doc, 'button', 'xfs-chip', 'Search all feeds instead');
+    all.onclick = () => nav.search(q);
+    scope.append(doc.createTextNode('Results only from '), el(doc, 'b', null, feedLabel || 'one feed'), all);
+  } else {
+    scope.append(doc.createTextNode('Results from '), el(doc, 'b', null, 'all shared feeds'),
+      doc.createTextNode('. To search one person’s feed only, open it and search there.'));
+  }
   const feedsBox = el(doc, 'div');
   const posts = el(doc, 'div');
   const more = moreButton(doc);
-  mount.replaceChildren(searchForm(doc, feed ? 'Search this feed' : 'Search posts and feed names', q,
-    nq => nav.search(nq, feed, feedLabel)), top, feedsBox, posts);
+  mount.replaceChildren(searchBox(doc, searchForm(doc, feed ? 'Search only this feed' : 'Search all feeds', q,
+    nq => nav.search(nq, feed, feedLabel)), scope), top, feedsBox, posts);
   posts.append(el(doc, 'div', 'xfs-note', 'Searching…'));
 
   if (!feed) {
@@ -191,7 +204,7 @@ export async function renderFeed(doc, mount, api, id, opts = {}) {
       : 'The name is self-described and not verified.';
     head.replaceChildren(top, tabs, el(doc, 'div', 'xfs-muted xfs-small',
       `${who} Posts are shown as the publisher uploaded them; open one on X to check it. Entries expire after 14 days.`));
-    if (opts.onSearch) head.append(searchForm(doc, 'Search this feed', '', q => opts.onSearch(q, feed.label)));
+    if (opts.onSearch) head.append(searchForm(doc, 'Search only this feed', '', q => opts.onSearch(q, feed.label)));
   }
 
   async function load(reset) {
