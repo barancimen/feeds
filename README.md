@@ -1,2 +1,2 @@
 # feeds
-This is a vibe-coded browser extension (also available as a tampermonkey script) for sharing one's "For you" and "Following" feeds on x.com.
+This is a vibe-coded application for sharing one's "For you" and "Following" feeds on X. It can be accessed via a tampermonkey script (visit the website for instructions). 
