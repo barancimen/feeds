@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "X Feed Share",
+  "version": "0.0.0",
+  "description": "Share your X home feed (For You / Following) publicly, and browse feeds other people share.",
+  "minimum_chrome_version": "111",
+  "permissions": ["storage"],
+  "host_permissions": [],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
+}
