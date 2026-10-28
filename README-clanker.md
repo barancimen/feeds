@@ -1,4 +1,4 @@
-# X Feed Share
+# feeds
 
 Share your X home feed (For You and/or Following) publicly, and browse feeds other people share — in a
 panel on x.com, or on a public web page that needs nothing installed.
@@ -6,22 +6,33 @@ panel on x.com, or on a public web page that needs nothing installed.
 - **Widget**: one core, shipped as a userscript (Tampermonkey / Violentmonkey) and a Chrome MV3 extension.
 - **Backend**: one Cloudflare Worker + D1. Public reads, token-authenticated writes, 14-day retention.
 
-**Live:** https://x-feed-share.barancimen321321.workers.dev. Install the userscript from
-[`/x-feed-share.user.js`](https://x-feed-share.barancimen321321.workers.dev/x-feed-share.user.js).
+**Live:** https://gestaltschaft.com/feeds. Install the userscript from
+[`/feeds/x-feed-share.user.js`](https://gestaltschaft.com/feeds/x-feed-share.user.js).
 Redeploy with `npm run deploy`, which builds against the live URL.
+
+The Worker owns only `gestaltschaft.com/feeds` and `/feeds/*` (two routes); the rest of gestaltschaft.com is a
+different Worker on a Custom Domain, and the path routes take precedence on their paths. The old
+`x-feed-share.barancimen321321.workers.dev` address redirects its pages to the new URL but still answers the API
+and the userscript, so copies installed before the move keep working and update themselves.
 
 ## How it works
 
 1. The widget wraps `fetch`/`XMLHttpRequest` in the page and reads the `HomeTimeline` (For You) and
    `HomeLatestTimeline` (Following) GraphQL responses that x.com already loads. It never makes its own
    requests to X; only posts you scroll past are seen.
-2. Nothing is uploaded until you tick "Share my Following/For You feed". The first tick creates a feed and a
-   secret publish token, which stays on the privileged side (GM storage / the extension's background worker).
-3. Posts are uploaded in order every 30 s as small records (text, author handle/name/avatar, media
-   thumbnails, quoted/retweeted post). Ads and posts by protected accounts are never captured.
-4. Anyone can browse: the panel's **Browse** tab, or `https://<worker>/` and `https://<worker>/f/<feed-id>`.
+2. "Share my Following feed" and "Share my For You feed" both start ticked. The first time there are posts
+   to share, the widget creates a public feed named after the logged-in @handle (rename any time) and a secret
+   publish token, which stays on the privileged side (GM storage / the extension's background worker).
+   Unticking a box stops that feed; deleting the feed turns both off.
+3. Posts upload continuously as you scroll: about 1.5 s after each page of posts arrives, at most one upload
+   every 4 s (the server allows 20 a minute), in feed order. Records are small (text, author handle/name/avatar,
+   media thumbnails, quoted/retweeted post). Ads and posts by protected accounts are never captured.
+   **Duplicates:** each tab queues a post once per feed kind; the server keeps one entry per feed, kind and post
+   ID (first sighting wins, so a post that resurfaces later isn't repeated) and stores identical content once.
+   The same post can legitimately appear in both Following and For You.
+4. Anyone can browse: the panel's **Browse** tab, or `https://gestaltschaft.com/feeds` and `…/feeds/f/<feed-id>`.
 5. Anyone can search: posts across every shared feed (text, retweeted/quoted text, author names and
-   handles) or within one feed, and feeds by name (`https://<worker>/?q=…`). Each result says which
+   handles) or within one feed, and feeds by name (`…/feeds/?q=…`). The UI always says whether a search covers all feeds or one. Each result says which
    feeds it was seen in. Results are per stored copy, so an altered copy is only ever attributed to the
    feed that uploaded it.
 
@@ -61,16 +72,15 @@ cd worker
 npx wrangler d1 create xfeeds                   # paste the database_id into wrangler.toml
 npx wrangler d1 execute xfeeds --remote --file schema.sql
 cd ..
-node build.mjs --api https://x-feed-share.<your-subdomain>.workers.dev
-cd worker && npx wrangler deploy
+npm run deploy                                   # = node build.mjs --api https://gestaltschaft.com/feeds && wrangler deploy
 ```
 
-The API origin is baked into the builds (`@connect`/`@updateURL` in the userscript, `host_permissions` in the
+The API base URL (which may include a path, like `/feeds`) is baked into the builds (`@connect`/`@updateURL` in the userscript, `host_permissions` in the
 manifest), so rebuild with `--api` before deploying.
 
 ## Install
 
-- **Userscript**: open `https://<worker>/x-feed-share.user.js` with Tampermonkey or Violentmonkey installed
+- **Userscript**: open `https://gestaltschaft.com/feeds/x-feed-share.user.js` with Tampermonkey or Violentmonkey installed
   (or install `dist/x-feed-share.user.js`). It must run in the page context: in Violentmonkey keep
   "inject-into page" (set in the header); Tampermonkey on Chrome needs "Allow User Scripts" enabled.
 - **Chrome extension**: `chrome://extensions` → Developer mode → Load unpacked → `dist/extension`.
@@ -107,7 +117,7 @@ build.mjs    esbuild -> dist/x-feed-share.user.js, dist/extension/, worker/src/*
   copy of a post, never what another feed shows.
 - Everything from the server is re-validated before rendering and built with `textContent`; images load only
   from `pbs.twimg.com`/`abs.twimg.com`. The public page sends a strict CSP.
-- Limits: 2 feed creations/min per IP, 30 searches/min per IP, 10 uploads/min and 5,000 posts/day per feed,
+- Limits: 2 feed creations/min per IP, 30 searches/min per IP, 20 uploads/min and 5,000 posts/day per feed,
   100 posts per upload, newest 1,000 entries per feed and kind, 14-day expiry (daily cron). A search looks
   at the 2,000 newest matching copies, which bounds its cost.
 - Not yet: an opt-out list for authors, list timelines.
