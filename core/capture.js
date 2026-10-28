@@ -1,12 +1,20 @@
-// Read-only network hooks: they only look at feed responses the page already requested.
+// Read-only network hooks: they only look at responses to requests the page already made.
 // Must be installed in the page's own JS world at document-start (adapted from x-feed.js).
 
 import { FEED_RE, kindOf } from './parse.js';
 
-export function installCapture(win, onFeed) {
-  const emit = (op, status, getJson) => {
+const CREATE_RE = /\/graphql\/[^/]+\/(CreateTweet|CreateNoteTweet)(\?|$)/;
+
+// onFeed(kind, json) for home timeline pages; onCreate(json) when the user posts (used for verification).
+export function installCapture(win, onFeed, onCreate = () => {}) {
+  const handlerFor = url => {
+    const m = url.match(FEED_RE);
+    if (m) return json => onFeed(kindOf(m[1]), json);
+    return CREATE_RE.test(url) ? onCreate : null;
+  };
+  const emit = (handler, status, getJson) => {
     if (status !== 200) return;
-    Promise.resolve().then(getJson).then(json => onFeed(kindOf(op), json)).catch(() => {});
+    Promise.resolve().then(getJson).then(handler).catch(() => {});
   };
 
   const origFetch = win.fetch;
@@ -15,8 +23,8 @@ export function installCapture(win, onFeed) {
       const res = await origFetch.apply(this, args);
       try {
         const url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
-        const m = url && String(url).match(FEED_RE);
-        if (m) emit(m[1], res.status, () => res.clone().json());
+        const h = url && handlerFor(String(url));
+        if (h) emit(h, res.status, () => res.clone().json());
       } catch (_) { /* never break the page */ }
       return res;
     };
@@ -31,10 +39,10 @@ export function installCapture(win, onFeed) {
       return origOpen.call(this, method, url, ...rest);
     };
     XHR.send = function (...args) {
-      const m = this.__xfsUrl && this.__xfsUrl.match(FEED_RE);
-      if (m) {
+      const h = this.__xfsUrl && handlerFor(this.__xfsUrl);
+      if (h) {
         this.addEventListener('load', () => {
-          emit(m[1], this.status, () =>
+          emit(h, this.status, () =>
             this.responseType === 'json' ? this.response : JSON.parse(this.responseText));
         });
       }

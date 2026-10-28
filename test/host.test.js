@@ -22,6 +22,8 @@ test('keeps the token on the privileged side', async () => {
 
   await request('POST', '/api/feeds/abcdefghij/items', { kind: 'foryou', tweets: [] }, true);
   await request('GET', '/api/feeds?limit=50', null, false);
+  await request('POST', '/api/feeds/abcdefghij/verify', {}, true);
+  await request('POST', '/api/feeds/abcdefghij/verify/check', { tweet_id: '1' }, true);
   assert.equal(seen[1].token, 'SECRET');
   assert.equal(seen[2].token, null);
 
@@ -33,7 +35,7 @@ test('keeps the token on the privileged side', async () => {
 test('blocks unexpected requests and the token key', async () => {
   const request = createPrivilegedRequest(async () => ({ status: 200, data: {} }), memStore());
   for (const [m, p] of [['GET', 'https://evil.com/'], ['GET', '//evil.com/api/feeds'], ['PUT', '/api/feeds'],
-    ['GET', '/api/feeds/../../x'], ['GET', '/admin']]) {
+    ['GET', '/api/feeds/../../x'], ['GET', '/admin'], ['POST', '/api/feeds/abcdefghij/verify/x']]) {
     await assert.rejects(request(m, p, null, true), /blocked request/);
   }
   const g = guardedStore(memStore());

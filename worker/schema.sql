@@ -9,9 +9,14 @@ CREATE TABLE IF NOT EXISTS feeds (
   foryou_at    INTEGER,                   -- last push per kind, for the directory badges
   following_at INTEGER,
   quota_day    INTEGER NOT NULL DEFAULT 0,
-  quota_used   INTEGER NOT NULL DEFAULT 0
+  quota_used   INTEGER NOT NULL DEFAULT 0,
+  verified_handle TEXT,                   -- X account that posted this feed's verification code
+  verified_at     INTEGER,
+  verify_code     TEXT,                   -- pending one-time code (never returned by public reads)
+  verify_code_at  INTEGER
 );
 CREATE INDEX IF NOT EXISTS feeds_recent ON feeds(last_push_at DESC);
+CREATE INDEX IF NOT EXISTS feeds_verified ON feeds(verified_handle COLLATE NOCASE);
 
 -- One row per distinct copy of a tweet, keyed by a hash of the cleaned record, so a publisher can only
 -- ever change their own copy. `n` is an explicit rowid so the search index can point at it stably.

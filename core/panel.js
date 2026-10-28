@@ -1,7 +1,7 @@
 // The on-x.com widget: a pill in the corner that opens a Share / Browse panel (closed Shadow DOM).
 
 import { renderDirectory, renderFeed, renderSearch } from './browse.js';
-import { CSS, el } from './render.js';
+import { CSS, el, isolateKeys } from './render.js';
 
 const PANEL_CSS = `
 .wrap{position:fixed;right:12px;bottom:12px;z-index:2147483647;display:flex;flex-direction:column;align-items:flex-end;gap:8px;background:none}
@@ -21,6 +21,10 @@ const PANEL_CSS = `
 .err{color:var(--danger);font-size:12px}
 .err:empty{display:none}
 .url{font-size:12px;overflow-wrap:anywhere}
+.feedinfo{display:grid;gap:8px}
+.pending{display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:12px}
+.pending .xfs-search{padding:0;border:0}
+.code{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px;border-radius:8px;background:var(--hover);overflow-wrap:anywhere;user-select:all}
 `;
 
 const KIND_ORDER = [['following', 'Share my Following feed'], ['foryou', 'Share my For You feed']];
@@ -55,7 +59,51 @@ export function mountPanel(doc, win, app) {
 
   // Share tab
   const share = el(doc, 'div', 'share');
-  const feedInfo = el(doc, 'div');
+  // Built once; render() only updates text and visibility, so an input keeps what the user typed.
+  const feedInfo = el(doc, 'div', 'feedinfo');
+  const noFeed = el(doc, 'div', 'xfs-muted', "You aren't sharing. Tick a box to create a public feed.");
+  const feedRow = el(doc, 'div', 'xfs-row');
+  const feedLabel = el(doc, 'span', 'xfs-label');
+  const renameBtn = el(doc, 'button', 'xfs-btn', 'Rename');
+  renameBtn.onclick = () => app.renameFeed();
+  feedRow.append(el(doc, 'span', 'xfs-muted', 'Public feed:'), feedLabel, renameBtn);
+  const linkRow = el(doc, 'div', 'xfs-row');
+  const feedLink = el(doc, 'a', 'url');
+  feedLink.target = '_blank';
+  feedLink.rel = 'noopener';
+  const copyBtn = el(doc, 'button', 'xfs-btn', 'Copy link');
+  copyBtn.onclick = () => win.navigator.clipboard.writeText(feedLink.href).then(() => { copyBtn.textContent = 'Copied'; }, () => {});
+  linkRow.append(feedLink, copyBtn);
+
+  // Verification
+  const verifiedLine = el(doc, 'div', 'xfs-badge');
+  const verifyRow = el(doc, 'div', 'xfs-row');
+  const verifyBtn = el(doc, 'button', 'xfs-btn');
+  verifyBtn.onclick = () => app.startVerify();
+  const verifyHint = el(doc, 'span', 'xfs-muted xfs-small');
+  verifyRow.append(verifyBtn, verifyHint);
+  const pending = el(doc, 'div', 'pending');
+  const pendingText = el(doc, 'div', 'code');
+  const pendingBtns = el(doc, 'div', 'xfs-row');
+  const reopenBtn = el(doc, 'button', 'xfs-btn', 'Open composer again');
+  reopenBtn.onclick = () => app.openComposer();
+  const cancelBtn = el(doc, 'button', 'xfs-btn', 'Cancel');
+  cancelBtn.onclick = () => app.cancelVerify();
+  pendingBtns.append(reopenBtn, cancelBtn);
+  const pasteForm = el(doc, 'form', 'xfs-search');
+  const pasteInput = el(doc, 'input');
+  pasteInput.placeholder = 'Posted it elsewhere? Paste the link';
+  pasteInput.maxLength = 300;
+  isolateKeys(pasteInput);
+  const pasteBtn = el(doc, 'button', 'xfs-btn', 'Check');
+  pasteBtn.type = 'submit';
+  pasteForm.append(pasteInput, pasteBtn);
+  pasteForm.addEventListener('submit', e => { e.preventDefault(); app.checkVerifyLink(pasteInput.value); });
+  pending.append(el(doc, 'div', 'xfs-small',
+    'Post this from your X account. A composer opened in a new tab: check the text and click Post. You can delete the post once verified.'),
+  pendingText, pendingBtns, pasteForm);
+
+  feedInfo.append(noFeed, feedRow, linkRow, verifiedLine, verifyRow, pending);
   const toggles = {};
   share.append(feedInfo);
   for (const [kind, text] of KIND_ORDER) {
@@ -119,25 +167,25 @@ export function mountPanel(doc, win, app) {
     box.style.display = settings.open ? '' : 'none';
     if (settings.open) wrap.classList.toggle('dark', isDark(win, doc));
 
-    feedInfo.replaceChildren();
-    if (settings.feed) {
-      const url = app.publicUrl(settings.feed.id);
-      const top = el(doc, 'div', 'xfs-row');
-      const rename = el(doc, 'button', 'xfs-btn', 'Rename');
-      rename.onclick = () => app.renameFeed();
-      top.append(el(doc, 'span', 'xfs-muted', 'Public feed:'), el(doc, 'span', 'xfs-label', settings.feed.label), rename);
-      const linkRow = el(doc, 'div', 'xfs-row');
-      const a = el(doc, 'a', 'url', url);
-      a.href = url;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      const copy = el(doc, 'button', 'xfs-btn', 'Copy link');
-      copy.onclick = () => win.navigator.clipboard.writeText(url).then(() => { copy.textContent = 'Copied'; }, () => {});
-      linkRow.append(a, copy);
-      feedInfo.append(top, linkRow);
-    } else {
-      feedInfo.append(el(doc, 'div', 'xfs-muted', "You aren't sharing. Tick a box to create a public feed."));
+    const f = settings.feed;
+    const show = (e, on) => { e.style.display = on ? '' : 'none'; };
+    show(noFeed, !f);
+    show(feedRow, f);
+    show(linkRow, f);
+    if (f) {
+      feedLabel.textContent = f.label;
+      const url = app.publicUrl(f.id);
+      if (feedLink.textContent !== url) { feedLink.textContent = url; feedLink.href = url; copyBtn.textContent = 'Copy link'; }
     }
+    const verified = f?.verified;
+    const isPending = !!(f && settings.verify && settings.verify.until > Date.now());
+    show(verifiedLine, verified);
+    if (verified) verifiedLine.textContent = `✓ Verified as @${verified.handle}`;
+    show(verifyRow, f && !isPending);
+    verifyBtn.textContent = verified ? 'Verify again' : 'Verify it’s you';
+    verifyHint.textContent = verified ? '' : 'Puts a ✓ and your X handle on your feed.';
+    show(pending, isPending);
+    if (isPending) pendingText.textContent = settings.verify.text;
     for (const [kind] of KIND_ORDER) {
       toggles[kind].input.checked = app.sharing(kind);
       toggles[kind].stat.textContent = app.sharing(kind)

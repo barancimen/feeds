@@ -1,7 +1,8 @@
 // Directory, feed and search views, shared by the on-x.com panel and the public web page.
 // `nav` = { home(), openFeed(id, kind?), search(q, feedId?, feedLabel?) } lets each host route its own way.
 
-import { ago, el, renderTweet, sessionLabel } from './render.js';
+import { ago, el, isolateKeys, renderTweet, sessionLabel } from './render.js';
+import { isHandle } from './safe.js';
 
 const KIND_TABS = [['following', 'Following'], ['foryou', 'For You']];
 const KIND_NAME = Object.fromEntries(KIND_TABS);
@@ -20,8 +21,7 @@ function searchForm(doc, placeholder, value, onSubmit) {
   input.value = value || '';
   input.maxLength = 200;
   input.setAttribute('aria-label', placeholder);
-  // Keep keystrokes away from the page: x.com binds single-letter shortcuts on the document.
-  for (const t of ['keydown', 'keyup', 'keypress']) input.addEventListener(t, e => e.stopPropagation());
+  isolateKeys(input);
   const button = el(doc, 'button', 'xfs-btn', 'Search');
   button.type = 'submit';
   form.append(input, button);
@@ -35,11 +35,23 @@ function searchForm(doc, placeholder, value, onSubmit) {
 
 const moreButton = doc => el(doc, 'button', 'xfs-btn xfs-more', 'Load more');
 
+// "✓ @handle" for feeds whose publisher proved control of that X account. A link where allowed.
+function badge(doc, handle, asLink) {
+  if (!isHandle(handle)) return null;
+  const b = el(doc, asLink ? 'a' : 'span', 'xfs-badge', `✓ @${handle}`);
+  b.title = `Published by @${handle} (account verified)`;
+  if (asLink) { b.href = `https://x.com/${handle}`; b.target = '_blank'; b.rel = 'noopener noreferrer'; }
+  return b;
+}
+
 function feedButton(doc, f, nav) {
   const b = el(doc, 'button', 'xfs-feed');
   const kinds = KIND_TABS.filter(([k]) => f[`${k}_at`]).map(([, name]) => name).join(' · ');
-  b.append(el(doc, 'div', 'xfs-label', f.label),
-    el(doc, 'div', 'xfs-muted xfs-small', `${kinds || 'No recent posts'} · active ${ago(f.last_push_at)}`));
+  const name = el(doc, 'div', 'xfs-row');
+  name.append(el(doc, 'span', 'xfs-label', f.label));
+  const v = badge(doc, f.verified_handle, false);
+  if (v) name.append(v);
+  b.append(name, el(doc, 'div', 'xfs-muted xfs-small', `${kinds || 'No recent posts'} · active ${ago(f.last_push_at)}`));
   b.onclick = () => nav.openFeed(f.id);
   return b;
 }
@@ -130,7 +142,8 @@ function seenLine(doc, seen, nav, scoped) {
   const line = el(doc, 'div', 'xfs-seen', scoped ? 'Seen ' : 'Seen in ');
   const shown = scoped ? seen.slice(0, 1) : seen.slice(0, 3);
   for (const s of shown) {
-    const text = scoped ? `${KIND_NAME[s.kind] || s.kind} · ${ago(s.session)}` : `${s.label} · ${KIND_NAME[s.kind] || s.kind} · ${ago(s.session)}`;
+    const who = isHandle(s.verified) ? `✓ @${s.verified}` : s.label;
+    const text = scoped ? `${KIND_NAME[s.kind] || s.kind} · ${ago(s.session)}` : `${who} · ${KIND_NAME[s.kind] || s.kind} · ${ago(s.session)}`;
     const chip = el(doc, 'button', 'xfs-chip', text);
     chip.onclick = () => nav.openFeed(s.feed_id, s.kind);
     line.append(chip);
@@ -157,6 +170,8 @@ export async function renderFeed(doc, mount, api, id, opts = {}) {
       top.append(b);
     }
     top.append(el(doc, 'span', 'xfs-label', feed.label));
+    const v = badge(doc, feed.verified_handle, true);
+    if (v) top.append(v);
     const tabs = el(doc, 'div', 'xfs-row');
     for (const [k, name] of KIND_TABS) {
       const t = el(doc, 'button', 'xfs-btn' + (k === kind ? ' on' : ''), name);
@@ -171,8 +186,11 @@ export async function renderFeed(doc, mount, api, id, opts = {}) {
       a.rel = 'noopener';
       tabs.append(a);
     }
+    const who = v
+      ? `Published by @${feed.verified_handle}, who proved control of that account on ${new Date(feed.verified_at).toLocaleDateString()}.`
+      : 'The name is self-described and not verified.';
     head.replaceChildren(top, tabs, el(doc, 'div', 'xfs-muted xfs-small',
-      'The name is self-described. Posts are shown as the publisher uploaded them; open one on X to verify it. Entries expire after 14 days.'));
+      `${who} Posts are shown as the publisher uploaded them; open one on X to check it. Entries expire after 14 days.`));
     if (opts.onSearch) head.append(searchForm(doc, 'Search this feed', '', q => opts.onSearch(q, feed.label)));
   }
 

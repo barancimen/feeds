@@ -49,3 +49,17 @@ test('XHR hook reports feed responses', async () => {
   await tick();
   assert.deepEqual(got, ['foryou']);
 });
+
+test('reports the user\'s own CreateTweet responses separately from feeds', async () => {
+  const feeds = [];
+  const created = [];
+  const body = { data: { create_tweet: { tweet_results: { result: { rest_id: '1' } } } } };
+  const win = { fetch: async () => new Response(JSON.stringify(body), { status: 200 }) };
+  installCapture(win, k => feeds.push(k), json => created.push(json));
+  await win.fetch(BASE + 'CreateTweet', { method: 'POST' });
+  await win.fetch(BASE + 'CreateNoteTweet', { method: 'POST' });
+  await win.fetch(BASE + 'CreateTweetDraft', { method: 'POST' });
+  await tick();
+  assert.equal(feeds.length, 0);
+  assert.deepEqual(created, [body, body]);
+});

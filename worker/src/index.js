@@ -2,6 +2,7 @@
 
 import { KINDS, MAX_BATCH, cleanLabel, cleanRecord } from '../../core/safe.js';
 import { ftsQuery } from './fts.js';
+import { CLOCK_SLACK_MS, CODE_TTL_MS, hasCode, makeCode, parseOembed, snowflakeMs, verifyText } from './verify.js';
 import USERSCRIPT from './userscript.gen.js';
 import VIEWER_JS from './viewer.gen.js';
 
@@ -67,6 +68,8 @@ async function route(req, env) {
     if (m === 'POST') return createFeed(req, env);
   }
   if (p === '/api/search' && m === 'GET') return search(req, env, url);
+  const v = p.match(/^\/api\/feeds\/([a-z0-9]{10})\/verify(\/check)?$/);
+  if (v && m === 'POST') return v[2] ? checkVerify(req, env, v[1]) : startVerify(req, env, v[1]);
   const f = p.match(/^\/api\/feeds\/([a-z0-9]{10})(\/items)?$/);
   if (f) {
     const [, id, items] = f;
@@ -122,7 +125,8 @@ const int = (v, d) => (Number.isSafeInteger(Number(v)) && v !== null && v !== ''
 
 function publicFeed(r) {
   return { id: r.id, label: r.label, created_at: r.created_at, last_push_at: r.last_push_at,
-    foryou_at: r.foryou_at, following_at: r.following_at };
+    foryou_at: r.foryou_at, following_at: r.following_at,
+    verified_handle: r.verified_handle ?? null, verified_at: r.verified_at ?? null };
 }
 
 // ---------- handlers ----------
@@ -215,7 +219,8 @@ async function search(req, env, url) {
   const offset = Math.min(Math.max(int(url.searchParams.get('offset'), 0), 0), 500);
   const { results } = await env.DB.prepare(
     `SELECT t.data, MAX(i.session) AS last_seen,
-       json_group_array(json_object('feed_id', i.feed_id, 'kind', i.kind, 'label', f.label, 'session', i.session)) AS seen
+       json_group_array(json_object('feed_id', i.feed_id, 'kind', i.kind, 'label', f.label, 'session', i.session,
+         'verified', f.verified_handle)) AS seen
      FROM (SELECT rowid FROM tweets_fts WHERE tweets_fts MATCH ?1 ORDER BY rowid DESC LIMIT ${SEARCH_SCAN}) m
      JOIN tweets t ON t.n = m.rowid
      JOIN items i ON i.hash = t.hash
@@ -255,6 +260,65 @@ async function getFeed(env, id, url) {
     items: results.map(r => ({ session: r.session, tweet: JSON.parse(r.data) })),
     next: results.length === limit ? `${last.session}.${last.pos}` : null,
   }, 200, { 'cache-control': 'public, max-age=30' });
+}
+
+// Step 1: issue a one-time code for the publisher to post from their X account.
+async function startVerify(req, env, id) {
+  await auth(req, env, id);
+  const code = makeCode();
+  const now = Date.now();
+  await env.DB.prepare('UPDATE feeds SET verify_code = ?, verify_code_at = ? WHERE id = ?').bind(code, now, id).run();
+  return json({ code, text: verifyText(code), expires_at: now + CODE_TTL_MS });
+}
+
+// Step 2: given the ID of the post, ask X who wrote it and whether it contains the code.
+async function checkVerify(req, env, id) {
+  const feed = await auth(req, env, id);
+  await rateLimit(env.VERIFY_LIMIT, id);
+  const body = await readJson(req);
+  const now = Date.now();
+  if (!feed.verify_code || now - feed.verify_code_at > CODE_TTL_MS) {
+    throw new HttpError(400, 'No verification in progress, or the code expired. Start again.');
+  }
+  if (typeof body?.tweet_id !== 'string' || !/^\d{1,20}$/.test(body.tweet_id)) throw new HttpError(400, 'tweet_id must be a post ID');
+  const posted = snowflakeMs(body.tweet_id);
+  if (posted < feed.verify_code_at - CLOCK_SLACK_MS || posted > now + CLOCK_SLACK_MS) {
+    throw new HttpError(400, 'That post was not made after the code was issued.');
+  }
+  const post = await fetchOembed(env, body.tweet_id);
+  if (!hasCode(post.text, feed.verify_code)) {
+    throw new HttpError(400, `That post by @${post.handle} doesn't contain the code.`, { handle: post.handle });
+  }
+  // One verified feed per account: verifying a new feed moves the badge.
+  await env.DB.batch([
+    env.DB.prepare('UPDATE feeds SET verified_handle = NULL, verified_at = NULL WHERE verified_handle = ?1 COLLATE NOCASE AND id != ?2')
+      .bind(post.handle, id),
+    env.DB.prepare('UPDATE feeds SET verified_handle = ?1, verified_at = ?2, verify_code = NULL, verify_code_at = NULL WHERE id = ?3')
+      .bind(post.handle, now, id),
+  ]);
+  return json({ verified_handle: post.handle, verified_at: now });
+}
+
+async function fetchOembed(env, tweetId) {
+  const base = env.OEMBED_URL || 'https://publish.x.com/oembed';
+  const url = `${base}?omit_script=1&dnt=true&url=${encodeURIComponent(`https://x.com/i/status/${tweetId}`)}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { accept: 'application/json', 'user-agent': 'XFeedShare/0.1 (account verification)' },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    throw new HttpError(502, "Couldn't reach X to check the post. Try again in a minute.");
+  }
+  if (res.status === 404 || res.status === 403) {
+    throw new HttpError(404, "X doesn't show this post publicly (yet). Posts from protected accounts can't be used.");
+  }
+  if (!res.ok) throw new HttpError(502, `X answered ${res.status} when checking the post. Try again in a minute.`);
+  let post = null;
+  try { post = parseOembed(await res.json()); } catch { /* not JSON */ }
+  if (!post) throw new HttpError(502, "Couldn't read X's answer about the post.");
+  return post;
 }
 
 async function renameFeed(req, env, id) {

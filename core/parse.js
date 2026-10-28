@@ -67,6 +67,14 @@ function toRecord(r, depth) {
   return rec;
 }
 
+// The post the user just made, from a CreateTweet / CreateNoteTweet response: { id, text } or null.
+export function createdTweet(json) {
+  const d = json?.data;
+  const r = unwrap(d?.create_tweet?.tweet_results?.result ?? d?.notetweet_create?.tweet_results?.result);
+  if (!r) return null;
+  return { id: r.rest_id, text: r.note_tweet?.note_tweet_results?.result?.text ?? decodeEntities(r.legacy.full_text ?? '') };
+}
+
 // Walks a response in order, returning cleaned records for the entries a user would see.
 // Ads (promotedMetadata, or an entryId starting with "promoted-") are skipped.
 export function extractFeed(json) {

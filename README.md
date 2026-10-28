@@ -21,6 +21,24 @@ panel on x.com, or on a public web page that needs nothing installed.
    feeds it was seen in. Results are per stored copy, so an altered copy is only ever attributed to the
    feed that uploaded it.
 
+## Verifying who publishes a feed
+
+Publishers can prove they control an X account, which puts "✓ @handle" on their feed:
+
+1. **Verify it's you** asks the Worker for a one-time code (valid 30 min) and opens X's own composer through
+   a Web Intent (`x.com/intent/post?text=…`) with "Verifying that I publish my X Feed Share feed. Code: …"
+   filled in. The user reviews it and clicks Post. Nothing is posted for them.
+2. The widget sees the response x.com already received for that post (the same passive hook as feed capture)
+   and sends only the post ID. If the post was made elsewhere, the user can paste its link instead.
+3. The Worker makes one request to X's public oEmbed endpoint (`publish.x.com/oembed`), asking for the post by
+   ID only. X reports the real author. The Worker checks that the code is in the post's text and that the post
+   is newer than the code (post IDs encode their creation time).
+
+The user's X session is never used to make requests, so there's nothing for X's automation checks to see.
+The text has no link, because many accounts posting identical text with one URL looks like spam. One verified
+feed per account: verifying another feed moves the badge. Verification proves who publishes a feed, not that
+its posts are really their timeline. Posts from protected accounts can't be checked through oEmbed.
+
 ## API
 
 | Route | |
@@ -29,6 +47,7 @@ panel on x.com, or on a public web page that needs nothing installed.
 | `GET /api/feeds/:id?kind=&before=&limit=` | One feed's entries, newest session first |
 | `GET /api/search?q=&feed=&kind=&offset=&limit=` | Full-text post search (words AND-ed, last word is a prefix) |
 | `POST /api/feeds` · `POST /api/feeds/:id/items` · `PATCH`/`DELETE /api/feeds/:id` | Create, upload (Bearer token), rename, delete |
+| `POST /api/feeds/:id/verify` · `POST /api/feeds/:id/verify/check {tweet_id}` | Get a one-time code; check the post containing it (Bearer token) |
 
 ## Deploy
 
@@ -79,7 +98,7 @@ build.mjs    esbuild -> dist/x-feed-share.user.js, dist/extension/, worker/src/*
 
 ## Trust model and limits
 
-- Feed names are self-described and unverified; content is shown as the publisher uploaded it. Every post
+- Feed names are self-described unless the feed carries a ✓ @handle (see above); content is shown as the publisher uploaded it. Every post
   links to the original on X. Tweets are stored per content hash, so a publisher can only affect their own
   copy of a post, never what another feed shows.
 - Everything from the server is re-validated before rendering and built with `textContent`; images load only
@@ -87,5 +106,5 @@ build.mjs    esbuild -> dist/x-feed-share.user.js, dist/extension/, worker/src/*
 - Limits: 2 feed creations/min per IP, 30 searches/min per IP, 10 uploads/min and 5,000 posts/day per feed,
   100 posts per upload, newest 1,000 entries per feed and kind, 14-day expiry (daily cron). A search looks
   at the 2,000 newest matching copies, which bounds its cost.
-- Not yet: verifying that a feed belongs to a given X account, an opt-out list for authors, list timelines.
+- Not yet: an opt-out list for authors, list timelines.
   If feed creation gets abused, put Turnstile in front of `POST /api/feeds`.

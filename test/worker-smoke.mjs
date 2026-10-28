@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { extractFeed } from '../core/parse.js';
@@ -24,7 +25,26 @@ const sql = command => JSON.parse(execFileSync(WRANGLER,
 execFileSync(WRANGLER, ['d1', 'execute', 'xfeeds', '--local', '--persist-to', persist, '--file', 'schema.sql'],
   { cwd: WORKER, env, stdio: 'ignore' });
 
-const dev = spawn(WRANGLER, ['dev', '--local', '--port', String(PORT), '--persist-to', persist, '--test-scheduled'],
+// Stand-in for publish.x.com/oembed: post ID -> { status, body }; records what the Worker asked for.
+const mock = new Map();
+const mockAsked = [];
+const oembed = (handle, htmlText) => ({ status: 200, body: JSON.stringify({
+  url: `https://x.com/${handle}/status/1`, author_name: handle, author_url: `https://x.com/${handle}`,
+  html: `<blockquote class="twitter-tweet"><p lang="en" dir="ltr">${htmlText}</p>&mdash; ${handle} (@${handle}) <a href="#">October 28, 2026</a></blockquote>`,
+  type: 'rich', provider_name: 'X', version: '1.0' }) });
+const oembedServer = http.createServer((req, res) => {
+  const target = new URL(req.url, 'http://x').searchParams.get('url') || '';
+  mockAsked.push(target);
+  const r = mock.get(target.split('/').pop()) || { status: 404, body: '<html>not found</html>' };
+  res.writeHead(r.status, { 'content-type': r.status === 200 ? 'application/json' : 'text/html' });
+  res.end(r.body);
+});
+await new Promise(r => oembedServer.listen(0, '127.0.0.1', r));
+const OEMBED = `http://127.0.0.1:${oembedServer.address().port}/oembed`;
+const freshId = (ms = Date.now()) => ((BigInt(ms) - 1288834974657n) << 22n).toString();
+
+const dev = spawn(WRANGLER, ['dev', '--local', '--port', String(PORT), '--persist-to', persist, '--test-scheduled',
+  '--var', `OEMBED_URL:${OEMBED}`],
   { cwd: WORKER, env, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 dev.stdout.on('data', d => { log += d; });
@@ -186,6 +206,57 @@ try {
     assert.equal((await call('PATCH', `/api/feeds/${A.id}`, { label: 'renamed' }, A.token)).data.label, 'renamed');
   });
 
+  await step('verification: one-time code, freshness, author from X, one verified feed per account', async () => {
+    const post = (path, body, token) => call('POST', `/api/feeds/${path}`, body, token);
+    assert.equal((await post(`${A.id}/verify/check`, { tweet_id: freshId() }, A.token)).status, 400); // nothing pending
+    assert.equal((await post(`${A.id}/verify`, {}, B.token)).status, 401);
+    const start = await post(`${A.id}/verify`, {}, A.token);
+    assert.equal(start.status, 200);
+    const { code } = start.data;
+    assert.match(code, /^[a-z0-9]{8}$/);
+    assert.ok(start.data.text.includes(code) && !/https?:/.test(start.data.text));
+    assert.ok(!JSON.stringify((await call('GET', `/api/feeds/${A.id}`)).data).includes(code));
+
+    assert.equal((await post(`${A.id}/verify/check`, { tweet_id: '2115036713554981186' }, A.token)).status, 400); // older than the code
+    assert.equal((await post(`${A.id}/verify/check`, { tweet_id: 'abc' }, A.token)).status, 400);
+    const missing = freshId();
+    assert.equal((await post(`${A.id}/verify/check`, { tweet_id: missing }, A.token)).status, 404);
+    assert.equal(mockAsked.at(-1), `https://x.com/i/status/${missing}`); // asks by ID only; X names the author
+    const other = freshId(Date.now() + 1);
+    mock.set(other, oembed('alice', 'just a normal post'));
+    const wrong = await post(`${A.id}/verify/check`, { tweet_id: other }, A.token);
+    assert.equal(wrong.status, 400);
+    assert.equal(wrong.data.handle, 'alice');
+    const flaky = freshId(Date.now() + 2);
+    mock.set(flaky, { status: 500, body: 'oops' });
+    assert.equal((await post(`${A.id}/verify/check`, { tweet_id: flaky }, A.token)).status, 502);
+
+    const good = freshId(Date.now() + 3);
+    mock.set(good, oembed('Alice', `it&#39;s me. Code: <a href="https://t.co/x">${code}</a>`));
+    const ok = await post(`${A.id}/verify/check`, { tweet_id: good }, A.token);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.data.verified_handle, 'Alice');
+    assert.equal((await call('GET', `/api/feeds/${A.id}`)).data.feed.verified_handle, 'Alice');
+    assert.equal((await call('GET', '/api/feeds')).data.feeds.find(f => f.id === A.id).verified_handle, 'Alice');
+    assert.ok((await searchIds('q=original')).results[0].seen.some(s => s.feed_id === A.id && s.verified === 'Alice'));
+    assert.equal((await post(`${A.id}/verify/check`, { tweet_id: good }, A.token)).status, 400); // single use
+
+    // B proves the same account (handles are case-insensitive): the badge moves to B.
+    const codeB = (await post(`${B.id}/verify`, {}, B.token)).data.code;
+    const goodB = freshId(Date.now() + 4);
+    mock.set(goodB, oembed('alice', `Code: ${codeB}`));
+    assert.equal((await post(`${B.id}/verify/check`, { tweet_id: goodB }, B.token)).data.verified_handle, 'alice');
+    assert.equal((await call('GET', `/api/feeds/${A.id}`)).data.feed.verified_handle, null);
+
+    // A code issued to one feed can't verify another.
+    const codeA = (await post(`${A.id}/verify`, {}, A.token)).data.code;
+    const codeB2 = (await post(`${B.id}/verify`, {}, B.token)).data.code;
+    const cross = freshId(Date.now() + 5);
+    mock.set(cross, oembed('mallory', `Code: ${codeA}`));
+    assert.equal((await post(`${B.id}/verify/check`, { tweet_id: cross }, B.token)).status, 400);
+    assert.notEqual(codeA, codeB2);
+  });
+
   await step('rate-limits feed creation', async () => {
     const r = await call('POST', '/api/feeds', { label: 'third' });
     assert.equal(r.status, 429);
@@ -223,5 +294,6 @@ try {
   process.exitCode = 1;
 } finally {
   dev.kill();
+  oembedServer.close();
   await fs.rm(persist, { recursive: true, force: true });
 }

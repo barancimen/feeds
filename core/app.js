@@ -4,17 +4,19 @@
 import { createApi } from './api.js';
 import { installCapture } from './capture.js';
 import { mountPanel } from './panel.js';
-import { extractFeed } from './parse.js';
-import { KINDS } from './safe.js';
+import { createdTweet, extractFeed } from './parse.js';
+import { isHandle, KINDS } from './safe.js';
 import { createUploader, FLUSH_MS } from './uploader.js';
 
 const SETTINGS_KEY = 'xfs_settings';
 const RECENT_MAX = 300;
+const VERIFY_RETRY_MS = [2000, 4000, 8000, 15000]; // X can take a moment to serve a new post
 
 export function startApp({ win, request, store, apiOrigin }) {
   const doc = win.document;
   const api = createApi(request);
-  const settings = { feed: null, share: { foryou: false, following: false }, open: false };
+  // feed: { id, label, verified?: { handle, at } }; verify: pending { code, text, until }
+  const settings = { feed: null, share: { foryou: false, following: false }, open: false, verify: null };
   const seen = { foryou: new Set(), following: new Set() };
   // What this tab has shown so far (memory only), so ticking a box shares the feed that's on screen.
   const recent = { foryou: [], following: [] };
@@ -56,14 +58,35 @@ export function startApp({ win, request, store, apiOrigin }) {
     if (recent[kind].length > RECENT_MAX) recent[kind].splice(0, recent[kind].length - RECENT_MAX);
     if (loaded) app.uploader.add(kind, recs); else early.push([kind, recs]);
     render();
+  }, json => {
+    // The user posted something. Only a post containing the pending code is sent for checking.
+    const t = createdTweet(json);
+    const v = settings.verify;
+    if (t && v && Date.now() < v.until && t.text.toLowerCase().includes(v.code)) app.checkVerify(t.id);
   });
 
-  store.get(SETTINGS_KEY).then(s => {
+  function applySettings(s) {
     if (!s || typeof s !== 'object') return;
-    if (s.feed && typeof s.feed.id === 'string') settings.feed = { id: s.feed.id, label: String(s.feed.label || '') };
+    settings.feed = null;
+    if (s.feed && typeof s.feed.id === 'string') {
+      settings.feed = { id: s.feed.id, label: String(s.feed.label || '') };
+      const v = s.feed.verified;
+      if (v && isHandle(v.handle)) settings.feed.verified = { handle: v.handle, at: Number(v.at) || 0 };
+    }
     for (const k of KINDS) settings.share[k] = !!s.share?.[k];
     settings.open = !!s.open;
-  }).catch(() => {}).finally(() => {
+    const p = s.verify;
+    settings.verify = p && /^[a-z0-9]{8}$/.test(p.code) && Number(p.until) > Date.now()
+      ? { code: p.code, text: String(p.text || ''), until: Number(p.until) } : null;
+  }
+
+  // Another tab may have changed settings (verification usually finishes in the tab X's composer opens).
+  doc.addEventListener('visibilitychange', () => {
+    if (doc.visibilityState !== 'visible' || !loaded) return;
+    store.get(SETTINGS_KEY).then(s => { applySettings(s); render(); }).catch(() => {});
+  });
+
+  store.get(SETTINGS_KEY).then(applySettings).catch(() => {}).finally(() => {
     loaded = true;
     for (const [k, recs] of early) app.uploader.add(k, recs);
     early = [];
@@ -119,6 +142,66 @@ export function startApp({ win, request, store, apiOrigin }) {
       await save();
     } catch (e) { app.message = `Delete failed: ${e.message}`; }
     render();
+  };
+
+  // Verification: get a code, let the user post it through X's own composer, then have the server check it.
+  app.startVerify = async () => {
+    if (!settings.feed) return;
+    app.message = null;
+    try {
+      const v = await api.startVerify(settings.feed.id);
+      settings.verify = { code: v.code, text: v.text, until: v.expires_at };
+      await save();
+      app.openComposer();
+    } catch (e) { app.message = `Could not start verification: ${e.message}`; }
+    render();
+  };
+
+  // X's Web Intent only pre-fills the composer; the user still reviews and clicks Post.
+  app.openComposer = () => {
+    if (settings.verify) win.open(`https://x.com/intent/post?text=${encodeURIComponent(settings.verify.text)}`, '_blank', 'noopener');
+  };
+
+  app.cancelVerify = async () => {
+    settings.verify = null;
+    app.message = null;
+    await save();
+    render();
+  };
+
+  let checking = false;
+  app.checkVerify = async tweetId => {
+    if (!settings.feed || !settings.verify || checking) return;
+    checking = true;
+    app.message = 'Checking your post with X…';
+    render();
+    for (let i = 0; ; i++) {
+      try {
+        const r = await api.checkVerify(settings.feed.id, tweetId);
+        settings.feed.verified = { handle: r.verified_handle, at: r.verified_at };
+        settings.verify = null;
+        app.message = `Verified as @${r.verified_handle}. You can delete the verification post now.`;
+        break;
+      } catch (e) {
+        if ([404, 429, 502].includes(e.status) && i < VERIFY_RETRY_MS.length) {
+          await new Promise(res => setTimeout(res, e.retryAfter ? e.retryAfter * 1000 : VERIFY_RETRY_MS[i]));
+          continue;
+        }
+        app.message = `Verification failed: ${e.message}`;
+        break;
+      }
+    }
+    checking = false;
+    await save();
+    render();
+  };
+
+  // Fallback when the post was made somewhere the widget can't see (phone app, another browser).
+  app.checkVerifyLink = text => {
+    const s = String(text).trim();
+    const m = s.match(/\/status(?:es)?\/(\d{1,20})/) || s.match(/^(\d{1,20})$/);
+    if (!m) { app.message = 'Paste the link to your post, like https://x.com/you/status/123…'; render(); return; }
+    app.checkVerify(m[1]);
   };
 
   app.flushNow = () => app.uploader.flush({ force: true });

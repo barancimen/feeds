@@ -18,6 +18,12 @@ name = "CREATE_LIMIT"
 namespace_id = "7101"
 simple = { limit = 2, period = 60 }
 
+# Verification checks, per feed. Each one makes a single request to X's public oEmbed endpoint.
+[[ratelimits]]
+name = "VERIFY_LIMIT"
+namespace_id = "7104"
+simple = { limit = 10, period = 60 }
+
 # Searches, per client IP.
 [[ratelimits]]
 name = "SEARCH_LIMIT"

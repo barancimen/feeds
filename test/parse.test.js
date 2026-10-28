@@ -54,3 +54,15 @@ test('tolerates junk input', () => {
   assert.deepEqual(extractFeed(null), []);
   assert.deepEqual(extractFeed({ data: { weird: [1, 'a', null, { tweet_results: { result: { rest_id: 'x' } } }] } }), []);
 });
+
+test('reads the post the user just made from CreateTweet / CreateNoteTweet responses', async () => {
+  const { createdTweet } = await import('../core/parse.js');
+  const { tweet, user } = await import('./fixtures/timeline.js');
+  const me = user('201', 'me');
+  assert.deepEqual(createdTweet({ data: { create_tweet: { tweet_results: { result: tweet('301', me, 'Code: abc &amp; def') } } } }),
+    { id: '301', text: 'Code: abc & def' });
+  const note = tweet('302', me, 'short', { top: { note_tweet: { note_tweet_results: { result: { text: 'long text Code: xyz' } } } } });
+  assert.deepEqual(createdTweet({ data: { notetweet_create: { tweet_results: { result: note } } } }), { id: '302', text: 'long text Code: xyz' });
+  assert.equal(createdTweet({ data: { create_tweet: { tweet_results: {} } } }), null);
+  assert.equal(createdTweet(null), null);
+});

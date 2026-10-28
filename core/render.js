@@ -53,7 +53,13 @@ export const CSS = `
 .xfs-chip{font:inherit;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:none;
   color:var(--fg);cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xfs-chip:hover{background:var(--hover)}
+.xfs-badge{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:700;color:var(--accent)!important;white-space:nowrap}
 `;
+
+// Keep keystrokes in our inputs away from the page: x.com binds single-letter shortcuts on the document.
+export function isolateKeys(input) {
+  for (const t of ['keydown', 'keyup', 'keypress']) input.addEventListener(t, e => e.stopPropagation());
+}
 
 export function el(doc, tag, cls, text) {
   const e = doc.createElement(tag);
