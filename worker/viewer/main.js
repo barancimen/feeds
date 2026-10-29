@@ -71,13 +71,14 @@ s1.append(ext('https://www.tampermonkey.net/', 'Tampermonkey'), document.createT
 const s2 = el(document, 'li', null, 'Click “Install the userscript” above, then Install in the dialog that opens.');
 const s3 = el(document, 'li', null,
   'Chrome only: open Tampermonkey’s extension details (chrome://extensions) and turn on “Allow User Scripts”.');
-const s4 = el(document, 'li', null, 'Open x.com/home and click “Feeds” in the top-right corner.');
+const s4 = el(document, 'li', null, 'Open x.com/home. Under the “Feeds” button in the top-right corner, choose whether to share that account.');
 steps.append(s1, s2, s3, s4);
 const how = el(document, 'details');
 how.append(el(document, 'summary', null, 'How to install (about 2 minutes)'), steps);
 install.append(el(document, 'div', 'install-title', 'Share your own feed'),
-  el(document, 'div', null, 'A small script for x.com. Once installed, it shares the Home posts you scroll past (Following and For You). ' +
-    'Untick either one in its panel to stop, or delete your feed at any time.'),
+  el(document, 'div', null, 'A small script for x.com. Once you say yes for an X account, it shares the Home posts you scroll past ' +
+    '(Following and For You) to that account’s own public feed. Each account is asked separately. Pause one account or all of them ' +
+    'with the buttons next to “Feeds”, or delete a feed at any time.'),
   installBtn, how);
 
 top.append(h1, intro, install);

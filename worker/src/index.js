@@ -4,6 +4,7 @@ import { KINDS, MAX_BATCH, cleanLabel, cleanRecord } from '../../core/safe.js';
 import { ftsQuery } from './fts.js';
 import { canonicalRedirect, splitBase } from './paths.js';
 import { CLOCK_SLACK_MS, CODE_TTL_MS, hasCode, makeCode, parseOembed, snowflakeMs, verifyText } from './verify.js';
+import { VERSION } from './meta.gen.js';
 import USERSCRIPT from './userscript.gen.js';
 import VIEWER_JS from './viewer.gen.js';
 
@@ -71,6 +72,8 @@ async function route(req, env) {
     if (m === 'POST') return createFeed(req, env);
   }
   if (p === '/api/search' && m === 'GET') return search(req, env, url);
+  // The userscript checks this to offer updates.
+  if (p === '/api/version' && m === 'GET') return json({ version: VERSION }, 200, { 'cache-control': 'public, max-age=300' });
   const v = p.match(/^\/api\/feeds\/([a-z0-9]{10})\/verify(\/check)?$/);
   if (v && m === 'POST') return v[2] ? checkVerify(req, env, v[1]) : startVerify(req, env, v[1]);
   const f = p.match(/^\/api\/feeds\/([a-z0-9]{10})(\/items)?$/);

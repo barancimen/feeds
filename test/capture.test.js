@@ -63,3 +63,24 @@ test('reports the user\'s own CreateTweet responses separately from feeds', asyn
   assert.equal(feeds.length, 0);
   assert.deepEqual(created, [body, body]);
 });
+
+test('tags each response with what tag() returned when its request started', async () => {
+  const got = [];
+  let account = 'A';
+  let release;
+  const win = {
+    fetch: () => new Promise(r => { release = () => r(new Response(JSON.stringify(FOLLOWING), { status: 200 })); }),
+    XMLHttpRequest: FakeXHR,
+  };
+  installCapture(win, (kind, json, t) => got.push([kind, t]), () => {}, () => account);
+  const p = win.fetch(BASE + 'HomeLatestTimeline');
+  account = 'B'; // switched accounts while the request was in flight
+  release();
+  await p;
+  const x = new win.XMLHttpRequest();
+  x.open('GET', BASE + 'HomeTimeline');
+  x.send();
+  account = 'C';
+  await tick();
+  assert.deepEqual(got, [['following', 'A'], ['foryou', 'B']]);
+});

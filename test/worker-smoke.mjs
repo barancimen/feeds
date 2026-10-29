@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
@@ -77,6 +78,9 @@ try {
     assert.match(home.headers.get('content-security-policy'), /script-src 'self'/);
     assert.match((await call('GET', '/viewer.js')).data, /Shared X Feeds/);
     assert.match((await call('GET', '/x-feed-share.user.js')).data, /==UserScript==/);
+    const v = await call('GET', '/feeds/api/version');
+    assert.equal(v.data.version, JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version);
+    assert.match((await call('GET', '/x-feed-share.user.js')).data, new RegExp(`@version +${v.data.version}\\n`));
   });
 
   let A;

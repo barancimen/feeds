@@ -5,10 +5,13 @@
 import { startApp } from '../core/app.js';
 
 const pending = new Map();
+const watchers = new Map();
 let seq = 0;
 
 window.addEventListener('message', e => {
-  if (e.source !== window || e.data?.__xfs !== 'res') return;
+  if (e.source !== window) return;
+  if (e.data?.__xfs === 'chg') { for (const cb of watchers.get(e.data.key) || []) cb(e.data.value); return; }
+  if (e.data?.__xfs !== 'res') return;
   const p = pending.get(e.data.id);
   if (!p) return;
   pending.delete(e.data.id);
@@ -34,5 +37,6 @@ startApp({
   store: {
     get: key => call({ op: 'get', key }),
     set: (key, value) => call({ op: 'set', key, value }),
+    watch: (key, cb) => { if (!watchers.has(key)) watchers.set(key, []); watchers.get(key).push(cb); },
   },
 });

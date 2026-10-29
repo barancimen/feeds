@@ -20,18 +20,33 @@ and the userscript, so copies installed before the move keep working and update 
 1. The widget wraps `fetch`/`XMLHttpRequest` in the page and reads the `HomeTimeline` (For You) and
    `HomeLatestTimeline` (Following) GraphQL responses that x.com already loads. It never makes its own
    requests to X; only posts you scroll past are seen.
-2. "Share my Following feed" and "Share my For You feed" both start ticked. The first time there are posts
-   to share, the widget creates a public feed named after the logged-in @handle (rename any time) and a secret
-   publish token, which stays on the privileged side (GM storage / the extension's background worker).
-   Unticking a box stops that feed; deleting the feed turns both off.
-3. Posts upload continuously as you scroll: about 1.5 s after each page of posts arrives, at most one upload
-   every 4 s (the server allows 20 a minute), in feed order. Records are small (text, author handle/name/avatar,
-   media thumbnails, quoted/retweeted post). Ads and posts by protected accounts are never captured.
+2. **Every X account is asked first.** The widget tells accounts apart by X's `twid` cookie (the signed-in
+   user's ID), read as each timeline request starts, so a response is credited to the account that loaded it even
+   if the user switches accounts meanwhile. The first time an account shows up, "Share @handle's feeds?" pops up
+   under the Feeds button; nothing from that account is uploaded unless the answer is yes. On yes, the widget creates
+   a public feed named after that @handle (rename any time) with its own secret publish token, kept on the
+   privileged side (GM storage / the extension's background worker). Answers are remembered per account, so
+   switching back and forth never asks again or mixes feeds. A tab left open while switching accounts in another
+   tab keeps crediting posts by cookie; a brand-new account there asks for a reload first, because the page still
+   shows the old account's handle.
+3. **Pausing.** Two small buttons next to Feeds: ⏸ @handle pauses the signed-in account, ⏸ All pauses every
+   account without changing their own switches. Both are remembered, apply to every open tab at once, and posts
+   seen while paused are never uploaded later. The Feeds button is green while posts are being shared, and red
+   when either switch is paused, the account isn't set up, or both feeds are unticked. "Share my Following feed"
+   and "Share my For You feed" start ticked; unticking one stops that feed; deleting the feed turns the account off.
+   Posts upload continuously as you scroll: about 1.5 s after each page of posts arrives, at most one upload
+   every 4 s per feed (the server allows 20 a minute), in feed order. Records are small (text, author
+   handle/name/avatar, media thumbnails, quoted/retweeted post). Ads and posts by protected accounts are never captured.
    **Duplicates:** each tab queues a post once per feed kind; the server keeps one entry per feed, kind and post
    ID (first sighting wins, so a post that resurfaces later isn't repeated) and stores identical content once.
    The same post can legitimately appear in both Following and For You.
-4. Anyone can browse: the panel's **Browse** tab, or `https://gestaltschaft.com/feeds` and `…/feeds/f/<feed-id>`.
-5. Anyone can search: posts across every shared feed (text, retweeted/quoted text, author names and
+   **Upgrading from 0.1.x:** the old single feed is given to the account it was named after (or verified as);
+   another account can claim it from its "Share?" prompt instead.
+4. **Updates.** The userscript checks `GET /api/version` at most every 6 hours and, when a newer version is out,
+   shows "Update available" under the Feeds button; "Update now" opens the userscript URL so Tampermonkey or
+   Violentmonkey can install it, "Later" hides it for a day.
+5. Anyone can browse: the panel's **Browse** tab, or `https://gestaltschaft.com/feeds` and `…/feeds/f/<feed-id>`.
+6. Anyone can search: posts across every shared feed (text, retweeted/quoted text, author names and
    handles) or within one feed, and feeds by name (`…/feeds/?q=…`). The UI always says whether a search covers all feeds or one. Each result says which
    feeds it was seen in. Results are per stored copy, so an altered copy is only ever attributed to the
    feed that uploaded it.
@@ -63,6 +78,7 @@ its posts are really their timeline. Posts from protected accounts can't be chec
 | `GET /api/search?q=&feed=&kind=&offset=&limit=` | Full-text post search (words AND-ed, last word is a prefix) |
 | `POST /api/feeds` · `POST /api/feeds/:id/items` · `PATCH`/`DELETE /api/feeds/:id` | Create, upload (Bearer token), rename, delete |
 | `POST /api/feeds/:id/verify` · `POST /api/feeds/:id/verify/check {tweet_id}` | Get a one-time code; check the post containing it (Bearer token) |
+| `GET /api/version` | Version of the published userscript (for the update notice) |
 
 ## Deploy
 
@@ -100,6 +116,7 @@ For local dev, apply the schema once with `cd worker && npx wrangler d1 execute 
 ```
 core/        shared by both widgets (and render/browse by the public page)
   capture.js   fetch/XHR hooks          parse.js   GraphQL -> records (ads/protected skipped)
+  account.js   signed-in account, per-account settings     update.js  update notice
   safe.js      validation + URL allowlist, used by client, renderer and Worker
   uploader.js  ordered, batched, retrying uploads     api.js / host.js   backend client / token owner
   render.js    tweet cards (DOM API only)             browse.js  directory + feed views

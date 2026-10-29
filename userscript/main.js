@@ -1,4 +1,4 @@
-/* global GM_xmlhttpRequest, GM_getValue, GM_setValue, unsafeWindow, __API__ */
+/* global GM_xmlhttpRequest, GM_getValue, GM_setValue, GM_addValueChangeListener, unsafeWindow, __API__, __VERSION__ */
 // Userscript wrapper. Runs in the page's JS world (@sandbox JavaScript / @inject-into page) so the
 // network hooks see X's own requests; talks to the backend with GM_xmlhttpRequest because x.com's
 // CSP blocks page-context requests to other origins.
@@ -10,6 +10,9 @@ const win = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
 const store = {
   get: async k => GM_getValue(k, null),
   set: async (k, v) => GM_setValue(k, v),
+  // Changes made by the script in other tabs.
+  watch: (k, cb) => typeof GM_addValueChangeListener === 'function' &&
+    GM_addValueChangeListener(k, (_name, _old, value, remote) => { if (remote) cb(value); }),
 };
 
 function gmFetch(method, path, body, token) {
@@ -34,7 +37,14 @@ function gmFetch(method, path, body, token) {
   });
 }
 
-startApp({ win, apiOrigin: __API__, request: createPrivilegedRequest(gmFetch, store), store: guardedStore(store) });
+startApp({
+  win,
+  apiOrigin: __API__,
+  request: createPrivilegedRequest(gmFetch, store),
+  store: guardedStore(store),
+  version: __VERSION__,
+  updateUrl: `${__API__}/x-feed-share.user.js`,
+});
 
 setTimeout(() => {
   if (!win.webpackChunk_twitter_responsive_web) {

@@ -31,5 +31,6 @@ export function createApi(request) {
     startVerify: id => call('POST', `/api/feeds/${enc(id)}/verify`, {}, true),
     checkVerify: (id, tweetId) => call('POST', `/api/feeds/${enc(id)}/verify/check`, { tweet_id: tweetId }, true),
     remove: id => call('DELETE', `/api/feeds/${enc(id)}`, null, true),
+    version: () => call('GET', '/api/version'),
   };
 }
