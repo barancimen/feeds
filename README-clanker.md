@@ -29,15 +29,14 @@ and the userscript, so copies installed before the move keep working and update 
    switching back and forth never asks again or mixes feeds. A tab left open while switching accounts in another
    tab keeps crediting posts by cookie; a brand-new account there asks for a reload first, because the page still
    shows the old account's handle.
-3. **Pausing.** Two small buttons sit next to Feeds. "@handle" switches the signed-in account on or off. "All"
-   pauses every account without changing each account's own switch. Both are remembered, apply to every open tab
-   at once, and posts seen while paused are never uploaded later. The buttons have thick, glowing outlines:
-   green when on, red when paused (or, for the account button, when the account isn't set up). Feeds is green
-   while posts are being shared, red otherwise (either switch paused, account not set up, both feeds unticked),
-   and shows a green dot while sharing. The dot only turns invisible, so nothing moves. The Share tab explains
-   the colours. "Share my Following feed" and "Share my For You feed" start ticked; unticking one stops that
-   feed. Deleting a feed switches its account off and deletes its publish key; switching the account back on
-   asks again and makes a new feed.
+3. **Pausing.** Clicking "Feeds" pauses or resumes every account; the "@handle" button next to it switches just
+   the signed-in account, and the global switch leaves each account's own switch as it is. Both are remembered,
+   apply to every open tab at once, and posts seen while paused are never uploaded later. Each switch has a thin
+   glowing outline, green when on and red when paused (the account's is also red until it is set up). A green
+   dot on Feeds means posts are being shared right now; it only turns invisible, so nothing moves. The small ▾
+   on Feeds opens the panel. "Share my Following feed" and "Share my For You feed" start ticked; unticking one
+   stops that feed. Deleting a feed switches its account off and deletes its publish key; switching the account
+   back on asks again and makes a new feed.
    Posts upload continuously as you scroll: about 1.5 s after each page of posts arrives, at most one upload
    every 4 s per feed (the server allows 20 a minute), in feed order. Records are small (text, author
    handle/name/avatar, media thumbnails, quoted/retweeted post). Ads and posts by protected accounts are never captured.

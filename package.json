@@ -1,6 +1,6 @@
 {
   "name": "x-feed-share",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Share your X home feed (For You / Following) publicly; browse others' shared feeds.",

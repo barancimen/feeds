@@ -1,7 +1,7 @@
-// The on-x.com widget (closed Shadow DOM), top-right: a switch for the signed-in account, one for every
-// account, and the Feeds button that opens the Share / Browse panel. Outlines are green when on and red when
-// paused; Feeds also shows a green dot while posts are being shared. Questions and the update notice pop up
-// under the button.
+// The on-x.com widget (closed Shadow DOM), top-right: a switch for the signed-in account, and the Feeds
+// button, which is the switch for every account plus a ▾ that opens the Share / Browse panel. Outlines are
+// green when on and red when paused; Feeds shows a green dot while posts are being shared. Questions and the
+// update notice pop up under the button.
 
 import { renderDirectory, renderFeed, renderSearch } from './browse.js';
 import { ago, CSS, el, isolateKeys } from './render.js';
@@ -9,25 +9,25 @@ import { ago, CSS, el, isolateKeys } from './render.js';
 const PANEL_CSS = `
 .wrap{position:fixed;right:12px;top:12px;z-index:2147483647;display:flex;flex-direction:column;align-items:flex-end;gap:10px;background:none;
   --on:#00a63e;--on-glow:rgba(0,166,62,.5);--off:#e8131b;--off-glow:rgba(232,19,27,.45)}
-.wrap.dark{--on:#2bd968;--on-glow:rgba(43,217,104,.55);--off:#ff4545;--off-glow:rgba(255,69,69,.5)}
+.wrap.dark{--on:#2bd968;--on-glow:rgba(43,217,104,.55);--off:#ff4545;--off-glow:rgba(255,69,69,.5);--hover:rgba(255,255,255,.08)}
 .bar{display:flex;gap:6px;align-items:center}
 /* Same border width in every state, and the dot only turns invisible, so nothing moves when states change. */
-.pill,.mini{display:flex;align-items:center;height:34px;font:inherit;font-weight:700;border-radius:999px;border:3px solid var(--off);
-  background:var(--bg);color:var(--fg);cursor:pointer;box-shadow:0 0 10px 1px var(--off-glow),0 2px 10px rgba(0,0,0,.12)}
-.pill.on,.mini.on{border-color:var(--on);box-shadow:0 0 10px 1px var(--on-glow),0 2px 10px rgba(0,0,0,.12)}
-.pill:hover,.mini:hover{background:var(--hover)}
-.pill{gap:7px;font-size:13px;padding:0 13px 0 11px}
+.split,.mini{display:flex;align-items:center;height:34px;border-radius:999px;border:1.5px solid var(--off);background:var(--bg);
+  box-shadow:0 0 10px 1px var(--off-glow),0 2px 10px rgba(0,0,0,.12)}
+.split.on,.mini.on{border-color:var(--on);box-shadow:0 0 10px 1px var(--on-glow),0 2px 10px rgba(0,0,0,.12)}
+.split{overflow:hidden}
+.split button,.mini{font:inherit;font-weight:700;color:var(--fg);cursor:pointer}
+.split button{height:100%;background:none;border:0}
 .mini{max-width:130px;font-size:12px;padding:0 11px}
 .mini span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.split button:hover,.mini:hover{background:var(--hover)}
+.split .main{display:flex;align-items:center;gap:7px;font-size:13px;padding:0 9px 0 11px}
+.caret{display:grid;place-items:center;width:26px;padding:0 4px 0 0}
+.caret i{width:0;height:0;border-left:4.5px solid transparent;border-right:4.5px solid transparent;border-top:5.5px solid currentColor;
+  transition:transform .15s}
+.caret[aria-expanded=true] i{transform:rotate(180deg)}
 .dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--on);box-shadow:0 0 6px 2px var(--on-glow);visibility:hidden}
-.pill.on .dot{visibility:visible}
-.legend{display:grid;gap:8px;font-size:13px;color:var(--muted);padding:10px 12px;border:1px solid var(--line);border-radius:12px}
-.legend .xfs-row{gap:6px 14px}
-.sw{display:inline-flex;align-items:center;gap:6px;color:var(--fg)}
-.sw i{display:inline-block;width:20px;height:13px;border-radius:999px;border:3px solid var(--on);box-shadow:0 0 6px var(--on-glow)}
-.sw i.off{border-color:var(--off);box-shadow:0 0 6px var(--off-glow)}
-.sw .dot{visibility:visible}
-.legend b{color:var(--fg)}
+.split.live .dot{visibility:visible}
 .callout{position:relative;width:320px;max-width:calc(100vw - 24px);display:grid;gap:8px;padding:12px 14px;border-radius:14px;
   border:2px solid var(--accent);background:var(--bg);color:var(--fg);box-shadow:0 6px 28px rgba(0,0,0,.28);animation:xfs-pop .25s ease-out}
 .callout::before{content:"";position:absolute;top:-9px;right:26px;border:8px solid transparent;border-top:0;border-bottom:9px solid var(--accent)}
@@ -48,7 +48,6 @@ const PANEL_CSS = `
 .tab.on{color:var(--fg);border-bottom-color:var(--accent)}
 .body{overflow-y:auto;flex:1;min-height:120px}
 .share{padding:12px 14px;display:grid;gap:12px}
-.status{font-weight:600}
 .toggle{display:flex;gap:10px;align-items:flex-start;cursor:pointer}
 .toggle input{margin-top:3px;accent-color:var(--accent)}
 .err{color:var(--danger);font-size:13px;font-weight:600}
@@ -63,11 +62,12 @@ const PANEL_CSS = `
 
 const KIND_ORDER = [['following', 'Share my Following feed'], ['foryou', 'Share my For You feed']];
 
-function isDark(win, doc) {
-  const m = (win.getComputedStyle(doc.body).backgroundColor || '').match(/\d+(\.\d+)?/g);
-  if (!m) return false;
-  const [r, g, b] = m.map(Number);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
+// X's theme, from the page background: Default (white), Dim (dark blue) or Lights out (black).
+function pageTheme(win, doc) {
+  const bg = win.getComputedStyle(doc.body).backgroundColor || '';
+  const [r, g, b, a = 1] = (bg.match(/\d+(\.\d+)?/g) || []).map(Number);
+  if (r === undefined || a === 0) return { dark: false, bg: null };
+  return { dark: 0.2126 * r + 0.7152 * g + 0.0722 * b < 128, bg };
 }
 
 // A switch next to Feeds: green outline when on, red when paused.
@@ -87,7 +87,7 @@ function miniButton(doc) {
   };
 }
 
-// Short status for the Feeds button's tooltip and the Share tab.
+// Short status for the Feeds button's tooltip.
 function describe(v) {
   const who = v.handle ? '@' + v.handle : 'this account';
   const btn = `“${v.handle ? who : 'Account'}”`;
@@ -95,7 +95,7 @@ function describe(v) {
     'signed-out': 'Sign in to X to share your feed.',
     loading: 'Checking which X account is signed in…',
     stale: 'This tab still shows the X account you had before switching. Reload the page.',
-    'paused-all': 'All uploads are paused, for every account. Click “All” next to Feeds to resume.',
+    'paused-all': 'All uploads are paused, for every account.',
     new: `${who} isn’t set up yet. Choose in the box under the Feeds button.`,
     off: `${who} isn’t shared. Click ${btn} next to Feeds to share it.`,
     paused: `Uploads for ${who} are paused. Click ${btn} next to Feeds to resume.`,
@@ -112,14 +112,21 @@ export function mountPanel(doc, win, app) {
   style.textContent = CSS + PANEL_CSS;
   const wrap = el(doc, 'div', 'xfs wrap');
   const box = el(doc, 'div', 'box');
-  const pill = el(doc, 'button', 'pill');
-  pill.append(el(doc, 'span', 'dot'), doc.createTextNode('Feeds'));
+  // Feeds: the switch for every account, and ▾ for the menu
+  const split = el(doc, 'div', 'split');
+  const main = el(doc, 'button', 'main');
+  main.append(el(doc, 'span', 'dot'), doc.createTextNode('Feeds'));
+  main.onclick = () => app.togglePauseAll();
+  const caret = el(doc, 'button', 'caret');
+  caret.append(el(doc, 'i'));
+  caret.title = 'Menu';
+  caret.setAttribute('aria-label', 'Feeds menu');
+  caret.onclick = () => app.setOpen(!app.settings.open);
+  split.append(main, caret);
   const acctBtn = miniButton(doc);
   acctBtn.b.onclick = () => app.togglePauseAccount();
-  const allBtn = miniButton(doc);
-  allBtn.b.onclick = () => app.togglePauseAll();
   const bar = el(doc, 'div', 'bar');
-  bar.append(acctBtn.b, allBtn.b, pill); // top-right corner, clear of X's Grok and Messages buttons
+  bar.append(acctBtn.b, split); // top-right corner, clear of X's Grok and Messages buttons
 
   // "Share this account?" (also used to say a tab is showing an old account)
   const ask = el(doc, 'div', 'callout');
@@ -164,7 +171,6 @@ export function mountPanel(doc, win, app) {
 
   // Share tab
   const share = el(doc, 'div', 'share');
-  const statusLine = el(doc, 'div', 'status');
   // Built once; render() only updates text and visibility, so an input keeps what the user typed.
   const feedInfo = el(doc, 'div', 'feedinfo');
   const feedRow = el(doc, 'div', 'xfs-row');
@@ -210,23 +216,8 @@ export function mountPanel(doc, win, app) {
 
   feedInfo.append(feedRow, linkRow, verifiedLine, verifyRow, pending);
 
-  // What the buttons next to Feeds mean
-  const legend = el(doc, 'div', 'legend');
-  const swatch = (cls, text) => {
-    const s = el(doc, 'span', 'sw');
-    s.append(cls === 'dot' ? el(doc, 'span', 'dot') : el(doc, 'i', cls), doc.createTextNode(text));
-    return s;
-  };
-  const swatches = el(doc, 'div', 'xfs-row');
-  swatches.append(swatch('', 'On'), swatch('off', 'Paused, or not set up'), swatch('dot', 'Sharing right now'));
-  const legendAcct = el(doc, 'b');
-  const legendText = el(doc, 'div');
-  legendText.append(legendAcct, doc.createTextNode(' switches this X account on or off. '), el(doc, 'b', null, 'All'),
-    doc.createTextNode(' pauses every account at once, and leaves each account’s own switch as it is. Both are remembered.'));
-  legend.append(swatches, legendText);
-
   const toggles = {};
-  share.append(statusLine, legend, feedInfo);
+  share.append(feedInfo);
   for (const [kind, text] of KIND_ORDER) {
     const label = el(doc, 'label', 'toggle');
     const input = el(doc, 'input');
@@ -277,7 +268,6 @@ export function mountPanel(doc, win, app) {
   }
   tabShare.onclick = () => showTab('share');
   tabBrowse.onclick = () => showTab('browse');
-  pill.onclick = () => app.setOpen(!app.settings.open);
   showTab('share');
 
   function render() {
@@ -287,22 +277,28 @@ export function mountPanel(doc, win, app) {
     const st = v.stats;
     const who = v.handle ? '@' + v.handle : 'this account';
     const show = (e, on) => { e.style.display = on ? '' : 'none'; };
-    wrap.classList.toggle('dark', isDark(win, doc));
+    const theme = pageTheme(win, doc);
+    wrap.classList.toggle('dark', theme.dark);
+    if (theme.dark) wrap.style.setProperty('--bg', theme.bg); // match Dim's blue as well as Lights out's black
+    else wrap.style.removeProperty('--bg');
     wrap.style.visibility = app.ready ? '' : 'hidden'; // no red flash before the settings have loaded
 
     // Bar
     const status = describe(v);
-    pill.classList.toggle('on', v.status === 'active');
-    pill.title = status;
-    pill.setAttribute('aria-label', `Feeds: ${status}`);
+    split.classList.toggle('on', !settings.paused);
+    split.classList.toggle('live', v.status === 'active');
+    const mainTitle = `${status} ${settings.paused
+      ? 'Click to resume (accounts you paused yourself stay paused).'
+      : 'Click to pause uploads for every account (each account keeps its own switch).'}`;
+    main.title = mainTitle;
+    main.setAttribute('aria-label', `Feeds: ${mainTitle}`);
+    main.setAttribute('aria-pressed', String(settings.paused));
+    caret.setAttribute('aria-expanded', String(!!settings.open));
     show(acctBtn.b, v.uid);
     acctBtn.set(v.handle ? '@' + v.handle : 'Account', !!a && !a.paused, !!a?.paused,
       !a ? `${who} isn’t set up. Click to choose whether to share it.`
         : a.paused ? `${who} is paused. Click to resume its uploads.`
           : `${who} is on. Click to pause its uploads (remembered for this account).`);
-    allBtn.set('All', !settings.paused, settings.paused, settings.paused
-      ? 'Everything is paused. Click to resume (accounts you paused yourself stay paused).'
-      : 'On. Click to pause uploads for every account (each account keeps its own switch).');
 
     // Callouts under the button
     const p = v.prompt;
@@ -337,8 +333,6 @@ export function mountPanel(doc, win, app) {
     // Panel
     box.style.display = settings.open ? '' : 'none';
     if (!settings.open) return;
-    statusLine.textContent = status;
-    legendAcct.textContent = v.handle ? '@' + v.handle : 'Account';
     const f = a?.feed;
     show(feedInfo, f);
     if (f) {
