@@ -155,7 +155,7 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
     return !settings.paused && !!a && !a.paused && !a.feed && KINDS.some(k => a.share[k]);
   };
 
-  // Creates the account's public feed once the user has said yes (it can be renamed later).
+  // Creates the account's public feed, named after its @handle, once the user has said yes.
   function ensureFeed(uid, force = false) {
     if (creating.has(uid)) return creating.get(uid);
     if (!wantsFeed(uid) || (!force && Date.now() - createFailedAt < 60000)) return null;
@@ -299,19 +299,6 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
     await save();
     if (on && a.feed) uploaderFor(uid).add(kind, tabFor(uid).recent[kind]);
     if (on && !a.feed && !a.paused) await ensureFeed(uid, true);
-    render();
-  };
-
-  app.renameFeed = async () => {
-    const a = acct(current());
-    if (!a?.feed) return;
-    const label = win.prompt('New public name for your feed:', a.feed.label);
-    if (label === null) return;
-    try {
-      const f = await api.rename(a.feed.id, label);
-      a.feed.label = f.label;
-      await save();
-    } catch (e) { app.notice = null; app.message = `Rename failed: ${e.message}`; }
     render();
   };
 

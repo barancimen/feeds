@@ -21,7 +21,7 @@ const ITEM_CHUNK = 16;           // 6 params per row
 
 const CORS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+  'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
   'access-control-allow-headers': 'authorization, content-type',
   'access-control-max-age': '86400',
 };
@@ -81,7 +81,6 @@ async function route(req, env) {
     const [, id, items] = f;
     if (items && m === 'POST') return pushItems(req, env, id);
     if (!items && m === 'GET') return getFeed(env, id, url);
-    if (!items && m === 'PATCH') return renameFeed(req, env, id);
     if (!items && m === 'DELETE') return deleteFeed(req, env, id);
   }
   return json({ error: 'not found' }, 404);
@@ -325,13 +324,6 @@ async function fetchOembed(env, tweetId) {
   try { post = parseOembed(await res.json()); } catch { /* not JSON */ }
   if (!post) throw new HttpError(502, "Couldn't read X's answer about the post.");
   return post;
-}
-
-async function renameFeed(req, env, id) {
-  await auth(req, env, id);
-  const label = cleanLabel((await readJson(req))?.label);
-  await env.DB.prepare('UPDATE feeds SET label = ? WHERE id = ?').bind(label, id).run();
-  return json({ id, label });
 }
 
 async function deleteFeed(req, env, id) {

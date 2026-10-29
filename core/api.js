@@ -27,7 +27,6 @@ export function createApi(request) {
       (kind ? `&kind=${enc(kind)}` : '') + (before ? `&before=${enc(before)}` : '')),
     createFeed: label => call('POST', '/api/feeds', { label }),
     push: (id, body) => call('POST', `/api/feeds/${enc(id)}/items`, body, true),
-    rename: (id, label) => call('PATCH', `/api/feeds/${enc(id)}`, { label }, true),
     startVerify: id => call('POST', `/api/feeds/${enc(id)}/verify`, {}, true),
     checkVerify: (id, tweetId) => call('POST', `/api/feeds/${enc(id)}/verify/check`, { tweet_id: tweetId }, true),
     remove: id => call('DELETE', `/api/feeds/${enc(id)}`, null, true),

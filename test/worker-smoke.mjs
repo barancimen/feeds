@@ -209,7 +209,7 @@ try {
     assert.deepEqual(same[0].seen.map(s => s.feed_id).sort(), [A.id, B.id].sort());
   });
 
-  await step('lists feeds without secrets, pages, filters by name; rename needs the token', async () => {
+  await step('lists feeds without secrets, pages, filters by name; names are fixed', async () => {
     const list = await call('GET', '/api/feeds');
     assert.deepEqual(list.data.feeds.map(f => f.id).sort(), [A.id, B.id].sort());
     assert.equal(list.data.next, null);
@@ -223,8 +223,8 @@ try {
     assert.deepEqual((await call('GET', '/api/feeds?q=tester%20f')).data.feeds.map(f => f.id), [A.id]);
     assert.deepEqual((await call('GET', '/api/feeds?q=%25')).data.feeds, []);
     assert.deepEqual((await call('GET', '/api/feeds?q=_')).data.feeds, []);
-    assert.equal((await call('PATCH', `/api/feeds/${A.id}`, { label: 'renamed' }, B.token)).status, 401);
-    assert.equal((await call('PATCH', `/api/feeds/${A.id}`, { label: 'renamed' }, A.token)).data.label, 'renamed');
+    assert.equal((await call('PATCH', `/api/feeds/${A.id}`, { label: 'renamed' }, A.token)).status, 404);
+    assert.equal((await call('GET', `/api/feeds/${A.id}`)).data.feed.label, A.label);
   });
 
   await step('verification: one-time code, freshness, author from X, one verified feed per account', async () => {
@@ -279,9 +279,13 @@ try {
   });
 
   await step('rate-limits feed creation', async () => {
-    const r = await call('POST', '/api/feeds', { label: 'third' });
-    assert.equal(r.status, 429);
-    assert.equal(r.data.retry_after, 60);
+    // At most 2 a minute, however long the steps above took: three in a row can't all succeed.
+    const rs = [];
+    for (let i = 0; i < 3; i++) rs.push(await call('POST', '/api/feeds', { label: `extra ${i}` }));
+    const limited = rs.find(r => r.status === 429);
+    assert.ok(limited, rs.map(r => r.status).join(','));
+    assert.equal(limited.data.retry_after, 60);
+    for (const r of rs) if (r.status === 201) assert.equal((await call('DELETE', `/api/feeds/${r.data.id}`, undefined, r.data.token)).status, 200);
   });
 
   await step('cron expires old entries and orphaned tweets', async () => {

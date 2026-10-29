@@ -24,7 +24,7 @@ and the userscript, so copies installed before the move keep working and update 
    user's ID), read as each timeline request starts, so a response is credited to the account that loaded it even
    if the user switches accounts meanwhile. The first time an account shows up, "Share @handle's feeds?" pops up
    under the Feeds button; nothing from that account is uploaded unless the answer is yes. On yes, the widget creates
-   a public feed named after that @handle (rename any time) with its own secret publish token, kept on the
+   a public feed named after that @handle (names can't be changed) with its own secret publish token, kept on the
    privileged side (GM storage / the extension's background worker). Answers are remembered per account, so
    switching back and forth never asks again or mixes feeds. A tab left open while switching accounts in another
    tab keeps crediting posts by cookie; a brand-new account there asks for a reload first, because the page still
@@ -79,7 +79,7 @@ its posts are really their timeline. Posts from protected accounts can't be chec
 | `GET /api/feeds?q=&before=&limit=` | Recently active feeds, newest first; `q` filters by name, `before` is the `next` cursor |
 | `GET /api/feeds/:id?kind=&before=&limit=` | One feed's entries, newest session first |
 | `GET /api/search?q=&feed=&kind=&offset=&limit=` | Full-text post search (words AND-ed, last word is a prefix) |
-| `POST /api/feeds` · `POST /api/feeds/:id/items` · `PATCH`/`DELETE /api/feeds/:id` | Create, upload (Bearer token), rename, delete |
+| `POST /api/feeds` · `POST /api/feeds/:id/items` · `DELETE /api/feeds/:id` | Create, upload (Bearer token), delete |
 | `POST /api/feeds/:id/verify` · `POST /api/feeds/:id/verify/check {tweet_id}` | Get a one-time code; check the post containing it (Bearer token) |
 | `GET /api/version` | Version of the published userscript (for the update notice) |
 

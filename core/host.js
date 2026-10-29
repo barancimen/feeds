@@ -6,7 +6,7 @@
 export const TOKEN_KEY = 'xfs_token';
 export const tokenKey = id => `${TOKEN_KEY}_${id}`;
 
-const METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE']);
+const METHODS = new Set(['GET', 'POST', 'DELETE']);
 const PATH_RE = /^\/api\/(feeds(\/[a-z0-9]{10}(\/items|\/verify(\/check)?)?)?|search|version)(\?[A-Za-z0-9=&._%-]*)?$/;
 const FEED_PATH = /^\/api\/feeds\/([a-z0-9]{10})(\/|\?|$)/;
 const FEED_ID = /^[a-z0-9]{10}$/;

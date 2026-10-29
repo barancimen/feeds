@@ -12,7 +12,7 @@ const PANEL_CSS = `
 .wrap.dark{--on:#2bd968;--on-glow:rgba(43,217,104,.55);--off:#ff4545;--off-glow:rgba(255,69,69,.5);--hover:rgba(255,255,255,.08)}
 .bar{display:flex;gap:6px;align-items:center}
 /* Same border width in every state, and the dot only turns invisible, so nothing moves when states change. */
-.split,.mini{display:flex;align-items:center;height:34px;border-radius:999px;border:1.5px solid var(--off);background:var(--bg);
+.split,.mini{display:flex;align-items:center;height:34px;border-radius:999px;border:2px solid var(--off);background:var(--bg);
   box-shadow:0 0 10px 1px var(--off-glow),0 2px 10px rgba(0,0,0,.12)}
 .split.on,.mini.on{border-color:var(--on);box-shadow:0 0 10px 1px var(--on-glow),0 2px 10px rgba(0,0,0,.12)}
 .split{overflow:hidden}
@@ -175,9 +175,7 @@ export function mountPanel(doc, win, app) {
   const feedInfo = el(doc, 'div', 'feedinfo');
   const feedRow = el(doc, 'div', 'xfs-row');
   const feedLabel = el(doc, 'span', 'xfs-label');
-  const renameBtn = el(doc, 'button', 'xfs-btn', 'Rename');
-  renameBtn.onclick = () => app.renameFeed();
-  feedRow.append(el(doc, 'span', 'xfs-muted', 'Public feed:'), feedLabel, renameBtn);
+  feedRow.append(el(doc, 'span', 'xfs-muted', 'Public feed:'), feedLabel);
   const linkRow = el(doc, 'div', 'xfs-row');
   const feedLink = el(doc, 'a', 'url');
   feedLink.target = '_blank';

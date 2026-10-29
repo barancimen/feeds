@@ -35,7 +35,7 @@ test('keeps one token per feed on the privileged side', async () => {
   await request('DELETE', '/api/feeds/aaaaaaaaaa', null, true);
   assert.equal(store.m.get(tokenKey('aaaaaaaaaa')), null);
   assert.equal(store.m.get(tokenKey('bbbbbbbbbb')), 'SECRET2');
-  assert.equal((await request('PATCH', '/api/feeds/aaaaaaaaaa', {}, true)).status, 401);
+  assert.equal((await request('POST', '/api/feeds/aaaaaaaaaa/verify', {}, true)).status, 401);
   await assert.rejects(request('POST', '/api/feeds', {}, true), /blocked request/); // auth needs a feed
 });
 
@@ -54,7 +54,7 @@ test('moves the single token from before per-account feeds to the feed it works 
 test('blocks unexpected requests and the token keys', async () => {
   const request = createPrivilegedRequest(async () => ({ status: 200, data: {} }), memStore());
   for (const [m, p] of [['GET', 'https://evil.com/'], ['GET', '//evil.com/api/feeds'], ['PUT', '/api/feeds'],
-    ['GET', '/api/feeds/../../x'], ['GET', '/admin'], ['POST', '/api/feeds/abcdefghij/verify/x'], ['GET', '/api/versions']]) {
+    ['GET', '/api/feeds/../../x'], ['GET', '/admin'], ['POST', '/api/feeds/abcdefghij/verify/x'], ['GET', '/api/versions'], ['PATCH', '/api/feeds/abcdefghij']]) {
     await assert.rejects(request(m, p, null, true), /blocked request/);
   }
   assert.equal((await request('GET', '/api/version', null, false)).status, 200);
