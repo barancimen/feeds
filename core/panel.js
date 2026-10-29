@@ -1,23 +1,33 @@
-// The on-x.com widget (closed Shadow DOM), top-right: a pause switch for the signed-in account, one for
-// every account, and the Feeds button (green while sharing, red otherwise) that opens the Share / Browse
-// panel. Questions and the update notice pop up under the button.
+// The on-x.com widget (closed Shadow DOM), top-right: a switch for the signed-in account, one for every
+// account, and the Feeds button that opens the Share / Browse panel. Outlines are green when on and red when
+// paused; Feeds also shows a green dot while posts are being shared. Questions and the update notice pop up
+// under the button.
 
 import { renderDirectory, renderFeed, renderSearch } from './browse.js';
 import { ago, CSS, el, isolateKeys } from './render.js';
 
 const PANEL_CSS = `
 .wrap{position:fixed;right:12px;top:12px;z-index:2147483647;display:flex;flex-direction:column;align-items:flex-end;gap:10px;background:none;
-  --ok:#0a7d43;--off:#c0111f}
+  --on:#00a63e;--on-glow:rgba(0,166,62,.5);--off:#e8131b;--off-glow:rgba(232,19,27,.45)}
+.wrap.dark{--on:#2bd968;--on-glow:rgba(43,217,104,.55);--off:#ff4545;--off-glow:rgba(255,69,69,.5)}
 .bar{display:flex;gap:6px;align-items:center}
-.pill{font:inherit;font-weight:700;font-size:13px;padding:8px 14px;border-radius:999px;border:0;background:var(--off);color:#fff;
-  cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.18)}
-.pill.on{background:var(--ok)}
-.mini{display:flex;gap:5px;align-items:center;max-width:130px;font:inherit;font-size:12px;font-weight:700;height:30px;padding:0 10px;
-  border-radius:999px;border:1px solid var(--edge);background:var(--bg);color:var(--fg);cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.14)}
-.mini:hover{background:var(--hover)}
-.mini[aria-pressed=true]{background:var(--off);border-color:var(--off);color:#fff}
+/* Same border width in every state, and the dot only turns invisible, so nothing moves when states change. */
+.pill,.mini{display:flex;align-items:center;height:34px;font:inherit;font-weight:700;border-radius:999px;border:3px solid var(--off);
+  background:var(--bg);color:var(--fg);cursor:pointer;box-shadow:0 0 10px 1px var(--off-glow),0 2px 10px rgba(0,0,0,.12)}
+.pill.on,.mini.on{border-color:var(--on);box-shadow:0 0 10px 1px var(--on-glow),0 2px 10px rgba(0,0,0,.12)}
+.pill:hover,.mini:hover{background:var(--hover)}
+.pill{gap:7px;font-size:13px;padding:0 13px 0 11px}
+.mini{max-width:130px;font-size:12px;padding:0 11px}
 .mini span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mini svg{flex:none;width:9px;height:10px;fill:currentColor}
+.dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--on);box-shadow:0 0 6px 2px var(--on-glow);visibility:hidden}
+.pill.on .dot{visibility:visible}
+.legend{display:grid;gap:8px;font-size:13px;color:var(--muted);padding:10px 12px;border:1px solid var(--line);border-radius:12px}
+.legend .xfs-row{gap:6px 14px}
+.sw{display:inline-flex;align-items:center;gap:6px;color:var(--fg)}
+.sw i{display:inline-block;width:20px;height:13px;border-radius:999px;border:3px solid var(--on);box-shadow:0 0 6px var(--on-glow)}
+.sw i.off{border-color:var(--off);box-shadow:0 0 6px var(--off-glow)}
+.sw .dot{visibility:visible}
+.legend b{color:var(--fg)}
 .callout{position:relative;width:320px;max-width:calc(100vw - 24px);display:grid;gap:8px;padding:12px 14px;border-radius:14px;
   border:2px solid var(--accent);background:var(--bg);color:var(--fg);box-shadow:0 6px 28px rgba(0,0,0,.28);animation:xfs-pop .25s ease-out}
 .callout::before{content:"";position:absolute;top:-9px;right:26px;border:8px solid transparent;border-top:0;border-bottom:9px solid var(--accent)}
@@ -52,8 +62,6 @@ const PANEL_CSS = `
 `;
 
 const KIND_ORDER = [['following', 'Share my Following feed'], ['foryou', 'Share my For You feed']];
-const PAUSE = 'M0 0h3.4v10H0zM5.6 0H9v10H5.6z';
-const PLAY = 'M0 0l9 5-9 5z';
 
 function isDark(win, doc) {
   const m = (win.getComputedStyle(doc.body).backgroundColor || '').match(/\d+(\.\d+)?/g);
@@ -62,21 +70,16 @@ function isDark(win, doc) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
 }
 
+// A switch next to Feeds: green outline when on, red when paused.
 function miniButton(doc) {
-  const NS = 'http://www.w3.org/2000/svg';
   const b = el(doc, 'button', 'mini');
-  const svg = doc.createElementNS(NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 9 10');
-  svg.setAttribute('aria-hidden', 'true');
-  const path = doc.createElementNS(NS, 'path');
-  svg.append(path);
   const text = el(doc, 'span');
-  b.append(svg, text);
+  b.append(text);
   return {
     b,
-    set(label, pressed, paused, title) {
+    set(label, on, pressed, title) {
       text.textContent = label;
-      path.setAttribute('d', paused ? PLAY : PAUSE);
+      b.classList.toggle('on', on);
       b.setAttribute('aria-pressed', String(pressed));
       b.title = title;
       b.setAttribute('aria-label', title);
@@ -87,14 +90,15 @@ function miniButton(doc) {
 // Short status for the Feeds button's tooltip and the Share tab.
 function describe(v) {
   const who = v.handle ? '@' + v.handle : 'this account';
+  const btn = `“${v.handle ? who : 'Account'}”`;
   return {
     'signed-out': 'Sign in to X to share your feed.',
     loading: 'Checking which X account is signed in…',
     stale: 'This tab still shows the X account you had before switching. Reload the page.',
-    'paused-all': 'All uploads are paused, for every account. Press ▶ All to resume.',
+    'paused-all': 'All uploads are paused, for every account. Click “All” next to Feeds to resume.',
     new: `${who} isn’t set up yet. Choose in the box under the Feeds button.`,
-    off: `${who} isn’t shared. Press ▶ next to the Feeds button to share it.`,
-    paused: `Uploads for ${who} are paused. Press ▶ ${v.handle ? who : 'Account'} to resume.`,
+    off: `${who} isn’t shared. Click ${btn} next to Feeds to share it.`,
+    paused: `Uploads for ${who} are paused. Click ${btn} next to Feeds to resume.`,
     creating: v.creating ? 'Creating your public feed…' : `${who}’s public feed isn’t created yet.`,
     none: `Both boxes are unticked, so nothing from ${who} is shared.`,
     active: `Sharing ${who}: Home posts upload as you scroll.`,
@@ -108,7 +112,8 @@ export function mountPanel(doc, win, app) {
   style.textContent = CSS + PANEL_CSS;
   const wrap = el(doc, 'div', 'xfs wrap');
   const box = el(doc, 'div', 'box');
-  const pill = el(doc, 'button', 'pill', 'Feeds');
+  const pill = el(doc, 'button', 'pill');
+  pill.append(el(doc, 'span', 'dot'), doc.createTextNode('Feeds'));
   const acctBtn = miniButton(doc);
   acctBtn.b.onclick = () => app.togglePauseAccount();
   const allBtn = miniButton(doc);
@@ -204,8 +209,24 @@ export function mountPanel(doc, win, app) {
   pendingText, pendingBtns, pasteForm);
 
   feedInfo.append(feedRow, linkRow, verifiedLine, verifyRow, pending);
+
+  // What the buttons next to Feeds mean
+  const legend = el(doc, 'div', 'legend');
+  const swatch = (cls, text) => {
+    const s = el(doc, 'span', 'sw');
+    s.append(cls === 'dot' ? el(doc, 'span', 'dot') : el(doc, 'i', cls), doc.createTextNode(text));
+    return s;
+  };
+  const swatches = el(doc, 'div', 'xfs-row');
+  swatches.append(swatch('', 'On'), swatch('off', 'Paused, or not set up'), swatch('dot', 'Sharing right now'));
+  const legendAcct = el(doc, 'b');
+  const legendText = el(doc, 'div');
+  legendText.append(legendAcct, doc.createTextNode(' switches this X account on or off. '), el(doc, 'b', null, 'All'),
+    doc.createTextNode(' pauses every account at once, and leaves each account’s own switch as it is. Both are remembered.'));
+  legend.append(swatches, legendText);
+
   const toggles = {};
-  share.append(statusLine, feedInfo);
+  share.append(statusLine, legend, feedInfo);
   for (const [kind, text] of KIND_ORDER) {
     const label = el(doc, 'label', 'toggle');
     const input = el(doc, 'input');
@@ -229,9 +250,8 @@ export function mountPanel(doc, win, app) {
   btnRow.append(flushBtn, delBtn);
   const othersLine = el(doc, 'div', 'xfs-muted xfs-small');
   share.append(seenLine, noticeLine, errLine, btnRow, othersLine, el(doc, 'div', 'xfs-muted xfs-small',
-    'Every X account asks before its first upload, and has its own feed. The ⏸ buttons next to Feeds pause the signed-in ' +
-    'account, or all accounts; both stay paused until you press ▶. Ads and posts from protected accounts are never shared. ' +
-    'Shared entries expire after 14 days.'));
+    'Every X account asks before its first upload, and has its own feed. Ads and posts from protected accounts are never ' +
+    'shared. Shared entries expire after 14 days.'));
 
   // Browse tab
   const browse = el(doc, 'div');
@@ -276,12 +296,13 @@ export function mountPanel(doc, win, app) {
     pill.title = status;
     pill.setAttribute('aria-label', `Feeds: ${status}`);
     show(acctBtn.b, v.uid);
-    const acctPaused = !a || a.paused;
-    acctBtn.set(v.handle ? '@' + v.handle : 'Account', !!a?.paused, acctPaused,
-      !a ? `Set up sharing for ${who}` : a.paused ? `Resume uploads for ${who}` : `Pause uploads for ${who} (remembered for this account)`);
-    allBtn.set('All', settings.paused, settings.paused, settings.paused
-      ? 'Resume uploads (accounts you paused yourself stay paused)'
-      : 'Pause uploads for every account (each account keeps its own setting)');
+    acctBtn.set(v.handle ? '@' + v.handle : 'Account', !!a && !a.paused, !!a?.paused,
+      !a ? `${who} isn’t set up. Click to choose whether to share it.`
+        : a.paused ? `${who} is paused. Click to resume its uploads.`
+          : `${who} is on. Click to pause its uploads (remembered for this account).`);
+    allBtn.set('All', !settings.paused, settings.paused, settings.paused
+      ? 'Everything is paused. Click to resume (accounts you paused yourself stay paused).'
+      : 'On. Click to pause uploads for every account (each account keeps its own switch).');
 
     // Callouts under the button
     const p = v.prompt;
@@ -317,6 +338,7 @@ export function mountPanel(doc, win, app) {
     box.style.display = settings.open ? '' : 'none';
     if (!settings.open) return;
     statusLine.textContent = status;
+    legendAcct.textContent = v.handle ? '@' + v.handle : 'Account';
     const f = a?.feed;
     show(feedInfo, f);
     if (f) {

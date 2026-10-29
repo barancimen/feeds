@@ -366,6 +366,7 @@ const pageHtml = base => `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>Shared X Feeds</title>
+<style>html{overflow-y:scroll}</style>
 </head>
 <body>
 <div id="app" data-base="${base}"></div>

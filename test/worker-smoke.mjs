@@ -76,6 +76,7 @@ try {
     const home = await call('GET', '/');
     assert.equal(home.status, 200);
     assert.match(home.headers.get('content-security-policy'), /script-src 'self'/);
+    assert.match(home.data, /html\{overflow-y:scroll\}/); // scroll bar always shown, so pages don't shift
     assert.match((await call('GET', '/viewer.js')).data, /Shared X Feeds/);
     assert.match((await call('GET', '/x-feed-share.user.js')).data, /==UserScript==/);
     const v = await call('GET', '/feeds/api/version');

@@ -29,11 +29,15 @@ and the userscript, so copies installed before the move keep working and update 
    switching back and forth never asks again or mixes feeds. A tab left open while switching accounts in another
    tab keeps crediting posts by cookie; a brand-new account there asks for a reload first, because the page still
    shows the old account's handle.
-3. **Pausing.** Two small buttons next to Feeds: ⏸ @handle pauses the signed-in account, ⏸ All pauses every
-   account without changing their own switches. Both are remembered, apply to every open tab at once, and posts
-   seen while paused are never uploaded later. The Feeds button is green while posts are being shared, and red
-   when either switch is paused, the account isn't set up, or both feeds are unticked. "Share my Following feed"
-   and "Share my For You feed" start ticked; unticking one stops that feed; deleting the feed turns the account off.
+3. **Pausing.** Two small buttons sit next to Feeds. "@handle" switches the signed-in account on or off. "All"
+   pauses every account without changing each account's own switch. Both are remembered, apply to every open tab
+   at once, and posts seen while paused are never uploaded later. The buttons have thick, glowing outlines:
+   green when on, red when paused (or, for the account button, when the account isn't set up). Feeds is green
+   while posts are being shared, red otherwise (either switch paused, account not set up, both feeds unticked),
+   and shows a green dot while sharing. The dot only turns invisible, so nothing moves. The Share tab explains
+   the colours. "Share my Following feed" and "Share my For You feed" start ticked; unticking one stops that
+   feed. Deleting a feed switches its account off and deletes its publish key; switching the account back on
+   asks again and makes a new feed.
    Posts upload continuously as you scroll: about 1.5 s after each page of posts arrives, at most one upload
    every 4 s per feed (the server allows 20 a minute), in feed order. Records are small (text, author
    handle/name/avatar, media thumbnails, quoted/retweeted post). Ads and posts by protected accounts are never captured.

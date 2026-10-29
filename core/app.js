@@ -199,7 +199,7 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
     forget(uid);
     app.notice = null;
     app.message = `${a?.handle ? '@' + a.handle + '’s' : 'This account’s'} shared feed no longer exists, or this browser lost its publish key. ` +
-      'Press ▶ next to the Feeds button to start a new one.';
+      `Click “${a?.handle ? '@' + a.handle : 'Account'}” next to Feeds to start a new one.`;
     save();
     render();
   }
@@ -241,7 +241,7 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
     const a = acct(uid);
     a.paused = !yes;
     if (yes && !KINDS.some(k => a.share[k])) a.share = { foryou: true, following: true };
-    if (!yes) app.notice = `Nothing from ${a.handle ? '@' + a.handle : 'this account'} will be shared. Press ▶ next to the Feeds button if you change your mind.`;
+    if (!yes) app.notice = `Nothing from ${a.handle ? '@' + a.handle : 'this account'} will be shared. Click “${a.handle ? '@' + a.handle : 'Account'}” next to Feeds if you change your mind.`;
     await save();
     if (yes) await ensureFeed(uid, true);
     render();
@@ -325,7 +325,7 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
       Object.assign(a, { feed: null, paused: true, verify: null });
       forget(uid);
       app.message = null;
-      app.notice = 'Feed deleted. Nothing more is shared from this account unless you press ▶ next to the Feeds button.';
+      app.notice = `Feed deleted, and ${a.handle ? '@' + a.handle : 'this account'} is switched off. Click “${a.handle ? '@' + a.handle : 'Account'}” next to Feeds to share it again (you’ll be asked first).`;
       await save();
     } catch (e) { app.notice = null; app.message = `Delete failed: ${e.message}`; }
     render();
