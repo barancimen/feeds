@@ -84,6 +84,14 @@ try {
     assert.match((await call('GET', '/x-feed-share.user.js')).data, new RegExp(`@version +${v.data.version}\\n`));
   });
 
+  await step('serves the privacy policy', async () => {
+    const p = await call('GET', '/feeds/privacy');
+    assert.equal(p.status, 200);
+    assert.match(p.headers.get('content-security-policy'), /default-src 'none'/);
+    assert.match(p.data, /<h1>Privacy policy<\/h1>/);
+    assert.match(p.data, /href="\/feeds"/); // links back under the same base
+  });
+
   let A;
   await step('creates a feed and returns the token once', async () => {
     const r = await call('POST', '/api/feeds', { label: '   @tester \n\n  feed  ' });

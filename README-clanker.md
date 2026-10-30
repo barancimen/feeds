@@ -82,6 +82,7 @@ its posts are really their timeline. Posts from protected accounts can't be chec
 | `POST /api/feeds` · `POST /api/feeds/:id/items` · `DELETE /api/feeds/:id` | Create, upload (Bearer token), delete |
 | `POST /api/feeds/:id/verify` · `POST /api/feeds/:id/verify/check {tweet_id}` | Get a one-time code; check the post containing it (Bearer token) |
 | `GET /api/version` | Version of the published userscript (for the update notice) |
+| `GET /privacy` | Privacy policy (linked from the Chrome Web Store listing) |
 
 ## Deploy
 
@@ -104,6 +105,25 @@ manifest), so rebuild with `--api` before deploying.
   "inject-into page" (set in the header); Tampermonkey on Chrome needs "Allow User Scripts" enabled.
 - **Chrome extension**: `chrome://extensions` → Developer mode → Load unpacked → `dist/extension`.
 
+## Chrome Web Store
+
+The extension is listed as **feeds** (the userscript keeps its own name). Listing text, dashboard answers
+and images are in `extension/store/` (`LISTING.md`); the privacy policy is served at
+`gestaltschaft.com/feeds/privacy` from `worker/src/privacy.js`, so keep it in step with the code.
+
+- `node build.mjs --api https://gestaltschaft.com/feeds` also writes `dist/feeds-extension-<version>.zip`.
+  Build with that `--api`: the default is localhost.
+  Copy each zip you submit to `releases/` and commit it (`dist/` is not in git).
+- First release: register at the developer dashboard ($5 once), create the item by uploading the zip, fill in
+  the listing from `LISTING.md`, and submit. Note the item ID and the publisher ID (Publisher → Settings).
+- Later releases: bump `package.json`'s version (the store refuses an equal or lower one), then
+  `node scripts/publish-extension.mjs` builds, uploads and submits for review (`--upload-only` leaves a draft).
+  It needs `CWS_PUBLISHER_ID`, `CWS_EXTENSION_ID`, `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET` and
+  `CWS_REFRESH_TOKEN`: create an OAuth client (Desktop app) in a Google Cloud project with the Chrome Web
+  Store API enabled, then get a refresh token for the `https://www.googleapis.com/auth/chromewebstore` scope
+  with the account that owns the item (e.g. via the OAuth 2.0 Playground with your own client credentials).
+  That account needs 2-step verification. Installed copies update themselves within hours of approval.
+
 ## Develop and test
 
 ```sh
@@ -125,9 +145,10 @@ core/        shared by both widgets (and render/browse by the public page)
   render.js    tweet cards (DOM API only)             browse.js  directory + feed views
   panel.js     the on-x.com panel                     app.js     wires it all together
 userscript/  GM_xmlhttpRequest wrapper
-extension/   MV3: MAIN-world main.js <-> bridge.js <-> background.js
+extension/   MV3: MAIN-world main.js <-> bridge.js <-> background.js; icons/, store/ (Web Store listing)
+scripts/     publish-extension.mjs (Chrome Web Store upload + submit)
 worker/      src/index.js (API, public page, cron GC), schema.sql, viewer/ (public page script)
-build.mjs    esbuild -> dist/x-feed-share.user.js, dist/extension/, worker/src/*.gen.js
+build.mjs    esbuild -> dist/x-feed-share.user.js, dist/extension/ (+ zip), worker/src/*.gen.js
 ```
 
 ## Trust model and limits

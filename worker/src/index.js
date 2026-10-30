@@ -5,6 +5,7 @@ import { ftsQuery } from './fts.js';
 import { canonicalRedirect, splitBase } from './paths.js';
 import { CLOCK_SLACK_MS, CODE_TTL_MS, hasCode, makeCode, parseOembed, snowflakeMs, verifyText } from './verify.js';
 import { VERSION } from './meta.gen.js';
+import { privacyHtml } from './privacy.js';
 import USERSCRIPT from './userscript.gen.js';
 import VIEWER_JS from './viewer.gen.js';
 
@@ -63,6 +64,7 @@ async function route(req, env) {
       const found = FEED_ID.test(id) && await env.DB.prepare('SELECT 1 FROM feeds WHERE id = ?').bind(id).first();
       return page(found ? 200 : 404, base);
     }
+    if (p === '/privacy') return page(200, base, privacyHtml(base));
     if (p === '/viewer.js') return asset(VIEWER_JS, 'text/javascript');
     if (p === '/x-feed-share.user.js') return asset(USERSCRIPT, 'text/javascript');
     if (p === '/favicon.ico') return new Response(null, { status: 204, headers: { 'cache-control': 'public, max-age=86400' } });
@@ -369,8 +371,8 @@ const pageHtml = base => `<!doctype html>
 const PAGE_CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
   "img-src https://pbs.twimg.com https://abs.twimg.com; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-function page(status, base) {
-  return new Response(pageHtml(base), { status, headers: {
+function page(status, base, body = pageHtml(base)) {
+  return new Response(body, { status, headers: {
     'content-type': 'text/html; charset=utf-8',
     'content-security-policy': PAGE_CSP,
     'x-content-type-options': 'nosniff',
