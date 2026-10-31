@@ -9,11 +9,13 @@ import { privacyHtml } from './privacy.js';
 import USERSCRIPT from './userscript.gen.js';
 import VIEWER_JS from './viewer.gen.js';
 
+const HOUR = 36e5;
 const DAY = 864e5;
 const RETENTION_MS = 14 * DAY;
 const MAX_ITEMS = 1000;          // per feed and kind
 const DAILY_QUOTA = 5000;        // tweets per feed per day
 const MAX_BODY = 512 * 1024;
+const CREATES_PER_HOUR = 100;    // new feeds, across the whole site
 const FEED_ID = /^[a-z0-9]{10}$/;
 const SEARCH_SCAN = 2000;        // newest matching copies considered per search, bounds rows read
 // D1 allows 100 bound parameters per statement.
@@ -61,7 +63,8 @@ async function route(req, env) {
     if (p === '/') return page(200, base);
     if (p.startsWith('/f/')) {
       const id = p.slice(3);
-      const found = FEED_ID.test(id) && await env.DB.prepare('SELECT 1 FROM feeds WHERE id = ?').bind(id).first();
+      const found = FEED_ID.test(id) && await env.DB.prepare('SELECT merged_into FROM feeds WHERE id = ?').bind(id).first();
+      if (found?.merged_into) return Response.redirect(`${url.origin}${base}/f/${found.merged_into}`, 301);
       return page(found ? 200 : 404, base);
     }
     if (p === '/privacy') return page(200, base, privacyHtml(base));
@@ -118,13 +121,39 @@ async function rateLimit(binding, key) {
   if (!success) throw new HttpError(429, 'too many requests', { retry_after: 60 });
 }
 
+// Returns the feed the token writes to: the feed itself, or the one it was merged into.
 async function auth(req, env, id) {
   const h = req.headers.get('authorization') || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : '';
   const row = await env.DB.prepare('SELECT * FROM feeds WHERE id = ?').bind(id).first();
   if (!row) throw new HttpError(404, 'feed not found');
   if (!token || token.length > 100 || row.token_hash !== await sha256(token)) throw new HttpError(401, 'bad token');
+  return row.merged_into ? feedById(env, row.merged_into) : row;
+}
+
+// A feed by ID, following a merge. merged_into always points at a feed that isn't merged itself.
+async function feedById(env, id) {
+  const row = await env.DB.prepare(`SELECT * FROM feeds WHERE id = (SELECT coalesce(merged_into, id) FROM feeds WHERE id = ?)`)
+    .bind(id).first();
+  if (!row) throw new HttpError(404, 'feed not found');
   return row;
+}
+
+// Moves feed `from` into feed `into`: its posts go there, and its token and links keep working for `into`.
+// Used when both feeds are proven to belong to the same X account (e.g. a userscript feed, then an
+// extension feed: the two can't share a token, so the second install creates a new feed).
+function mergeStatements(env, from, into) {
+  const db = env.DB;
+  const latest = col => `nullif(max(coalesce(${col}, 0), coalesce((SELECT ${col} FROM feeds WHERE id = ?1), 0)), 0)`;
+  return [
+    db.prepare('UPDATE OR IGNORE items SET feed_id = ?2 WHERE feed_id = ?1').bind(from, into),
+    db.prepare('DELETE FROM items WHERE feed_id = ?1').bind(from), // posts `into` already had
+    db.prepare(`UPDATE feeds SET last_push_at = ${latest('last_push_at')}, foryou_at = ${latest('foryou_at')},
+      following_at = ${latest('following_at')} WHERE id = ?2`).bind(from, into),
+    db.prepare('UPDATE feeds SET merged_into = ?2 WHERE merged_into = ?1').bind(from, into),
+    db.prepare(`UPDATE feeds SET merged_into = ?2, last_push_at = NULL, foryou_at = NULL, following_at = NULL,
+      verified_handle = NULL, verified_at = NULL, verify_code = NULL, verify_code_at = NULL WHERE id = ?1`).bind(from, into),
+  ];
 }
 
 const chunks = (a, n) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
@@ -139,13 +168,18 @@ function publicFeed(r) {
 // ---------- handlers ----------
 
 async function createFeed(req, env) {
-  await rateLimit(env.CREATE_LIMIT, req.headers.get('cf-connecting-ip') || 'local');
+  const now = Date.now();
+  const recent = await env.DB.prepare(`SELECT COUNT(*) AS n, MIN(created_at) AS first FROM
+    (SELECT created_at FROM feeds WHERE created_at > ?1 ORDER BY created_at DESC LIMIT ?2)`).bind(now - HOUR, CREATES_PER_HOUR).first();
+  if (recent.n >= CREATES_PER_HOUR) {
+    throw new HttpError(429, 'too many new feeds this hour', { retry_after: Math.ceil((recent.first + HOUR - now) / 1000) });
+  }
   const body = await readJson(req);
   const id = randomId();
   const token = randomToken();
   const label = cleanLabel(body?.label);
   await env.DB.prepare('INSERT INTO feeds (id, token_hash, label, created_at) VALUES (?, ?, ?, ?)')
-    .bind(id, await sha256(token), label, Date.now()).run();
+    .bind(id, await sha256(token), label, now).run();
   return json({ id, token, label }, 201);
 }
 
@@ -187,11 +221,11 @@ async function pushItems(req, env, id) {
   }
   for (const c of chunks(rows, ITEM_CHUNK)) {
     stmts.push(db.prepare(`INSERT OR IGNORE INTO items (feed_id, kind, tweet_id, hash, session, pos) VALUES ${c.map(() => '(?,?,?,?,?,?)').join(',')}`)
-      .bind(...c.flatMap(r => [id, body.kind, r.id, r.hash, session, r.pos])));
+      .bind(...c.flatMap(r => [feed.id, body.kind, r.id, r.hash, session, r.pos])));
   }
   // body.kind is one of KINDS, so the column name is safe to interpolate.
   stmts.push(db.prepare(`UPDATE feeds SET last_push_at = ?1, ${body.kind}_at = ?1, quota_day = ?2, quota_used = ?3 WHERE id = ?4`)
-    .bind(now, day, used, id));
+    .bind(now, day, used, feed.id));
   await db.batch(stmts);
   return json({ accepted: rows.length });
 }
@@ -203,7 +237,7 @@ async function listFeeds(env, url) {
   const like = q ? `%${q.replace(/[\\%_]/g, c => '\\' + c)}%` : null;
   const [cs, cid] = (url.searchParams.get('before') || '').split('.');
   const { results } = await env.DB.prepare(
-    `SELECT * FROM feeds WHERE last_push_at > ?1
+    `SELECT * FROM feeds WHERE last_push_at > ?1 AND merged_into IS NULL
        AND (last_push_at < ?2 OR (last_push_at = ?2 AND id > ?3))
        AND (?4 IS NULL OR label LIKE ?4 ESCAPE '\\')
      ORDER BY last_push_at DESC, id ASC LIMIT ?5`,
@@ -232,7 +266,7 @@ async function search(req, env, url) {
      JOIN tweets t ON t.n = m.rowid
      JOIN items i ON i.hash = t.hash
      JOIN feeds f ON f.id = i.feed_id
-     WHERE (?2 IS NULL OR i.feed_id = ?2) AND (?3 IS NULL OR i.kind = ?3)
+     WHERE (?2 IS NULL OR i.feed_id = (SELECT coalesce(merged_into, id) FROM feeds WHERE id = ?2)) AND (?3 IS NULL OR i.kind = ?3)
      GROUP BY t.hash
      ORDER BY last_seen DESC, t.hash
      LIMIT ?4 OFFSET ?5`,
@@ -247,8 +281,7 @@ async function search(req, env, url) {
 }
 
 async function getFeed(env, id, url) {
-  const feed = await env.DB.prepare('SELECT * FROM feeds WHERE id = ?').bind(id).first();
-  if (!feed) throw new HttpError(404, 'feed not found');
+  const feed = await feedById(env, id);
   let kind = url.searchParams.get('kind');
   if (!KINDS.includes(kind)) kind = (feed.following_at || 0) >= (feed.foryou_at || 0) ? 'following' : 'foryou';
   const limit = Math.min(Math.max(int(url.searchParams.get('limit'), 30), 1), 100);
@@ -259,7 +292,7 @@ async function getFeed(env, id, url) {
     `SELECT i.session, i.pos, t.data FROM items i JOIN tweets t ON t.hash = i.hash
      WHERE i.feed_id = ?1 AND i.kind = ?2 AND (i.session < ?3 OR (i.session = ?3 AND i.pos > ?4))
      ORDER BY i.session DESC, i.pos ASC LIMIT ?5`,
-  ).bind(id, kind, beforeSession, afterPos, limit).all();
+  ).bind(feed.id, kind, beforeSession, afterPos, limit).all();
   const last = results[results.length - 1];
   return json({
     feed: publicFeed(feed),
@@ -271,10 +304,10 @@ async function getFeed(env, id, url) {
 
 // Step 1: issue a one-time code for the publisher to post from their X account.
 async function startVerify(req, env, id) {
-  await auth(req, env, id);
+  const feed = await auth(req, env, id);
   const code = makeCode();
   const now = Date.now();
-  await env.DB.prepare('UPDATE feeds SET verify_code = ?, verify_code_at = ? WHERE id = ?').bind(code, now, id).run();
+  await env.DB.prepare('UPDATE feeds SET verify_code = ?, verify_code_at = ? WHERE id = ?').bind(code, now, feed.id).run();
   return json({ code, text: verifyText(code), expires_at: now + CODE_TTL_MS });
 }
 
@@ -296,14 +329,16 @@ async function checkVerify(req, env, id) {
   if (!hasCode(post.text, feed.verify_code)) {
     throw new HttpError(400, `That post by @${post.handle} doesn't contain the code.`, { handle: post.handle });
   }
-  // One verified feed per account: verifying a new feed moves the badge.
+  // One verified feed per account: a new feed proven by an account that already has one is merged into it.
+  const prior = await env.DB.prepare('SELECT id FROM feeds WHERE verified_handle = ?1 COLLATE NOCASE AND id != ?2')
+    .bind(post.handle, feed.id).first();
+  const into = prior?.id ?? feed.id;
   await env.DB.batch([
-    env.DB.prepare('UPDATE feeds SET verified_handle = NULL, verified_at = NULL WHERE verified_handle = ?1 COLLATE NOCASE AND id != ?2')
-      .bind(post.handle, id),
+    ...(prior ? mergeStatements(env, feed.id, into) : []),
     env.DB.prepare('UPDATE feeds SET verified_handle = ?1, verified_at = ?2, verify_code = NULL, verify_code_at = NULL WHERE id = ?3')
-      .bind(post.handle, now, id),
+      .bind(post.handle, now, into),
   ]);
-  return json({ verified_handle: post.handle, verified_at: now });
+  return json({ verified_handle: post.handle, verified_at: now, ...(prior ? { merged_into: into } : {}) });
 }
 
 async function fetchOembed(env, tweetId) {
@@ -329,12 +364,13 @@ async function fetchOembed(env, tweetId) {
 }
 
 async function deleteFeed(req, env, id) {
-  await auth(req, env, id);
+  const feed = await auth(req, env, id);
+  id = feed.id;
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM tweets WHERE hash IN (SELECT hash FROM items WHERE feed_id = ?1)
       AND NOT EXISTS (SELECT 1 FROM items i WHERE i.hash = tweets.hash AND i.feed_id != ?1)`).bind(id),
     env.DB.prepare('DELETE FROM items WHERE feed_id = ?').bind(id),
-    env.DB.prepare('DELETE FROM feeds WHERE id = ?').bind(id),
+    env.DB.prepare('DELETE FROM feeds WHERE id = ?1 OR merged_into = ?1').bind(id),
   ]);
   return json({ deleted: id });
 }

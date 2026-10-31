@@ -3,6 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -270,12 +271,14 @@ try {
     assert.ok((await searchIds('q=original')).results[0].seen.some(s => s.feed_id === A.id && s.verified === 'Alice'));
     assert.equal((await post(`${A.id}/verify/check`, { tweet_id: good }, A.token)).status, 400); // single use
 
-    // B proves the same account (handles are case-insensitive): the badge moves to B.
+    // B proves another account: both feeds stay, each with its own badge. (The same account merges; see below.)
     const codeB = (await post(`${B.id}/verify`, {}, B.token)).data.code;
     const goodB = freshId(Date.now() + 4);
-    mock.set(goodB, oembed('alice', `Code: ${codeB}`));
-    assert.equal((await post(`${B.id}/verify/check`, { tweet_id: goodB }, B.token)).data.verified_handle, 'alice');
-    assert.equal((await call('GET', `/api/feeds/${A.id}`)).data.feed.verified_handle, null);
+    mock.set(goodB, oembed('bob', `Code: ${codeB}`));
+    const okB = await post(`${B.id}/verify/check`, { tweet_id: goodB }, B.token);
+    assert.equal(okB.data.verified_handle, 'bob');
+    assert.equal(okB.data.merged_into, undefined);
+    assert.equal((await call('GET', `/api/feeds/${A.id}`)).data.feed.verified_handle, 'Alice');
 
     // A code issued to one feed can't verify another.
     const codeA = (await post(`${A.id}/verify`, {}, A.token)).data.code;
@@ -286,14 +289,23 @@ try {
     assert.notEqual(codeA, codeB2);
   });
 
-  await step('rate-limits feed creation', async () => {
-    // At most 2 a minute, however long the steps above took: three in a row can't all succeed.
-    const rs = [];
-    for (let i = 0; i < 3; i++) rs.push(await call('POST', '/api/feeds', { label: `extra ${i}` }));
-    const limited = rs.find(r => r.status === 429);
-    assert.ok(limited, rs.map(r => r.status).join(','));
-    assert.equal(limited.data.retry_after, 60);
-    for (const r of rs) if (r.status === 201) assert.equal((await call('DELETE', `/api/feeds/${r.data.id}`, undefined, r.data.token)).status, 200);
+  await step('rate-limits feed creation: 100 new feeds an hour across the site', async () => {
+    const before = sql('SELECT COUNT(*) AS n FROM feeds')[0].n;
+    const extra = 100 - before - 1;
+    // Fill up to one below the limit with feeds made 10 to 59 minutes ago (made directly, to be quick).
+    sql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${extra})
+      INSERT INTO feeds (id, token_hash, label, created_at) SELECT printf('fill%06d', i), 'x', 'fill', ${Date.now() - 59 * 60000} + i * 1000 FROM n`);
+    const last = await call('POST', '/api/feeds', { label: 'the 100th' });
+    assert.equal(last.status, 201);
+    const over = await call('POST', '/api/feeds', { label: 'the 101st' });
+    assert.equal(over.status, 429);
+    assert.ok(over.data.retry_after > 0 && over.data.retry_after <= 3600, String(over.data.retry_after));
+    // An hour later they no longer count.
+    sql(`UPDATE feeds SET created_at = created_at - 3600000 WHERE id LIKE 'fill%' OR id = '${last.data.id}'`);
+    const again = await call('POST', '/api/feeds', { label: 'later' });
+    assert.equal(again.status, 201);
+    for (const r of [last, again]) assert.equal((await call('DELETE', `/api/feeds/${r.data.id}`, undefined, r.data.token)).status, 200);
+    sql("DELETE FROM feeds WHERE id LIKE 'fill%'");
   });
 
   await step('cron expires old entries and orphaned tweets', async () => {
@@ -318,6 +330,53 @@ try {
     assert.equal(sql('SELECT COUNT(*) AS n FROM tweets')[0].n, 0);
     assert.equal(sql('SELECT COUNT(*) AS n FROM tweets_fts')[0].n, 0);
     assert.deepEqual((await searchIds('q=jerry')).results, []);
+  });
+
+  await step('a new feed proven by an already verified account is merged into its feed', async () => {
+    // Feeds made directly, so the creation rate limit doesn't get in the way.
+    const make = (id, handle) => {
+      const token = `token-${id}-0123456789abcdef`;
+      sql(`INSERT INTO feeds (id, token_hash, label, created_at, verified_handle, verified_at) VALUES
+        ('${id}', '${createHash('sha256').update(token).digest('hex')}', '@carol', ${Date.now()}, ${handle ? `'${handle}', 1` : 'NULL, NULL'})`);
+      return { id, token };
+    };
+    const P = make('pppppppppp', 'carol'); // made with the userscript, verified
+    const Q = make('qqqqqqqqqq', null);    // made later with the extension
+    const push = (f, tweets, kind = 'foryou') => call('POST', `/api/feeds/${f.id}/items`, { kind, tweets }, f.token);
+    assert.equal((await push(P, recs.slice(0, 3))).status, 200);
+    assert.equal((await push(Q, recs.slice(2, 5))).status, 200); // one post in common
+    assert.equal((await push(Q, recs.slice(5, 6), 'following')).status, 200);
+    const code = (await call('POST', `/api/feeds/${Q.id}/verify`, {}, Q.token)).data.code;
+    const proof = freshId(Date.now() + 10);
+    mock.set(proof, oembed('Carol', `Code: ${code}`));
+    const ok = await call('POST', `/api/feeds/${Q.id}/verify/check`, { tweet_id: proof }, Q.token);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.data.merged_into, P.id);
+
+    const p = (await call('GET', `/api/feeds/${P.id}?kind=foryou&limit=100`)).data;
+    assert.equal(p.items.length, 5);
+    assert.equal(p.feed.verified_handle, 'Carol');
+    assert.ok(p.feed.following_at);
+    assert.equal(sql(`SELECT COUNT(*) AS n FROM items WHERE feed_id = '${Q.id}'`)[0].n, 0);
+    // The extension keeps using Q's ID and token; they lead to P.
+    assert.equal((await push(Q, recs.slice(6, 7))).status, 200);
+    assert.equal((await call('GET', `/api/feeds/${P.id}?kind=foryou&limit=100`)).data.items.length, 6);
+    assert.equal((await call('GET', `/api/feeds/${Q.id}?kind=foryou`)).data.feed.id, P.id);
+    const moved = await fetch(`${BASE}/feeds/f/${Q.id}`, { redirect: 'manual' });
+    assert.equal(moved.status, 301);
+    assert.equal(new URL(moved.headers.get('location')).pathname, `/feeds/f/${P.id}`);
+    const listed = (await call('GET', '/api/feeds')).data.feeds.map(f => f.id);
+    assert.ok(listed.includes(P.id) && !listed.includes(Q.id));
+    const word = recs[6].text.split(/\s+/).find(w => /^[a-z]{4,}$/i.test(w));
+    assert.ok((await searchIds(`q=${word}&feed=${Q.id}`)).results.length);
+    assert.equal((await call('POST', `/api/feeds/${Q.id}/verify`, {}, Q.token)).status, 200); // verifies P
+    assert.equal((await call('POST', `/api/feeds/${P.id}/items`, { kind: 'foryou', tweets: recs.slice(0, 1) }, Q.token)).status, 401);
+
+    // Deleting through either token deletes the merged feed and the old ID.
+    assert.equal((await call('DELETE', `/api/feeds/${Q.id}`, undefined, Q.token)).data.deleted, P.id);
+    assert.equal(sql(`SELECT COUNT(*) AS n FROM feeds WHERE id IN ('${P.id}', '${Q.id}')`)[0].n, 0);
+    assert.equal((await push(P, recs.slice(0, 1))).status, 404);
+    assert.equal(sql('SELECT COUNT(*) AS n FROM tweets')[0].n, 0);
   });
 
   console.log(`\n${steps.length} worker checks passed`);

@@ -1,7 +1,7 @@
 // The privacy policy at <base>/privacy, linked from the Chrome Web Store listing. Static apart from `base`
 // ('' or '/feeds', never user input). Keep it in step with what the code does.
 
-const UPDATED = '29 October 2026';
+const UPDATED = '31 October 2026';
 const REPO = 'https://github.com/barancimen/feeds';
 // GitHub's mark (Octicons mark-github, 16x16), as on the other pages.
 const GITHUB_MARK = 'M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 ' +
@@ -80,7 +80,7 @@ already shared then expires within 14 days.</li>
 <h2>Who else is involved</h2>
 <ul>
 <li>The website and its database run on <b>Cloudflare</b>. Cloudflare handles your IP address to deliver the
-site; feeds uses it only to rate-limit new feeds and searches, and does not store it. Pages on gestaltschaft.com
+site; feeds uses it only to rate-limit searches, and does not store it. Pages on gestaltschaft.com
 may include Cloudflare Web Analytics, which counts visits without cookies.</li>
 <li>Pictures in feeds are loaded straight from <b>X</b>’s image servers, so X can see that your browser
 loaded them.</li>

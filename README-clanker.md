@@ -69,7 +69,11 @@ Publishers can prove they control an X account, which puts "✓ @handle" on thei
 
 The user's X session is never used to make requests, so there's nothing for X's automation checks to see.
 The text has no link, because many accounts posting identical text with one URL looks like spam. One verified
-feed per account: verifying another feed moves the badge. Verification proves who publishes a feed, not that
+feed per account: when a second feed is verified by an account that already has one (typically the
+userscript's feed, then the extension's, since the two can't share a token), the second is merged into the
+first. Its posts move over, and its ID and token keep working but lead to the first feed (`feeds.merged_into`;
+`/f/<old id>` redirects, and the directory hides it). Unverified feeds are never merged, because a feed's name
+proves nothing. Verification proves who publishes a feed, not that
 its posts are really their timeline. Posts from protected accounts can't be checked through oEmbed.
 
 ## API
@@ -158,7 +162,8 @@ build.mjs    esbuild -> dist/x-feed-share.user.js, dist/extension/ (+ zip), work
   copy of a post, never what another feed shows.
 - Everything from the server is re-validated before rendering and built with `textContent`; images load only
   from `pbs.twimg.com`/`abs.twimg.com`. The public page sends a strict CSP.
-- Limits: 2 feed creations/min per IP, 30 searches/min per IP, 20 uploads/min and 5,000 posts/day per feed,
+- Limits: 100 new feeds/hour across the site (counted in D1: Cloudflare's rate limiter only has 10 s and
+  60 s windows, and per-IP hourly counts would mean storing IPs), 30 searches/min per IP, 20 uploads/min and 5,000 posts/day per feed,
   100 posts per upload, newest 1,000 entries per feed and kind, 14-day expiry (daily cron). A search looks
   at the 2,000 newest matching copies, which bounds its cost.
 - Not yet: an opt-out list for authors, list timelines.

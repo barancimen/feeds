@@ -23,12 +23,6 @@ database_id = "d1680c6f-b523-466f-8829-091d7a50ada8"
 [triggers]
 crons = ["17 3 * * *"]
 
-# Feed creation, per client IP.
-[[ratelimits]]
-name = "CREATE_LIMIT"
-namespace_id = "7101"
-simple = { limit = 2, period = 60 }
-
 # Verification checks, per feed. Each one makes a single request to X's public oEmbed endpoint.
 [[ratelimits]]
 name = "VERIFY_LIMIT"

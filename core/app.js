@@ -86,7 +86,7 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
   // Settings changed in another tab (a pause, a new feed, a finished verification).
   function reconcile() {
     for (const uid of new Set([...Object.keys(tabs), ...uploaders.keys()])) {
-      if (settings.paused || acct(uid)?.paused) forget(uid);
+      if (settings.paused || (acct(uid)?.paused && acct(uid).feed)) forget(uid);
       else uploaders.get(uid)?.flush();
     }
   }
@@ -95,8 +95,10 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
     const t = tabFor(uid);
     const fresh = recs.filter(r => !t.seen[kind].has(r.id));
     for (const r of fresh) t.seen[kind].add(r.id);
-    // Posts seen while paused are never shared later. Posts seen before an account is set up are, if the user says yes.
-    if (!settings.paused && !acct(uid)?.paused) {
+    // Posts seen while a feed is paused are never shared later. Posts seen while an account has no feed (new,
+    // declined or deleted) are, if the user then says yes on this page.
+    const a = acct(uid);
+    if (!settings.paused && !(a?.paused && a.feed)) {
       t.recent[kind].push(...fresh);
       if (t.recent[kind].length > RECENT_MAX) t.recent[kind].splice(0, t.recent[kind].length - RECENT_MAX);
     }

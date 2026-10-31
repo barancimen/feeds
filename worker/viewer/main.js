@@ -41,7 +41,8 @@ body.xfs{min-height:100vh}
 .install .xfs-btn.primary{justify-self:start;font-size:16px;padding:9px 18px;background:var(--accent);border-color:var(--accent);color:var(--bg)}
 .install .xfs-btn.primary:hover{text-decoration:none;filter:brightness(1.1)}
 .install ol{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
-.install summary{cursor:pointer;font-weight:600;font-size:14px}
+.install summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.install details[open]{display:grid;gap:8px}
 .page{padding-bottom:64px}
 a.gh{position:fixed;right:16px;bottom:16px;display:grid;place-items:center;width:40px;height:40px;border-radius:50%;
   background:var(--bg);color:var(--muted)}
@@ -70,29 +71,29 @@ const h1 = el(document, 'h1');
 const home = el(document, 'a', null, 'Shared X Feeds');
 home.href = HOME;
 h1.append(home);
-const intro = el(document, 'div', 'xfs-muted',
-  "What other people's For You and Following timelines on X look like, shared by them.");
+const intro = el(document, 'div', 'xfs-muted', 'Share your X feed publicly and view feeds shared by others');
 
-// Make installing the obvious next step.
+// The Chrome extension is the main way to share; the userscript is the alternative, folded away.
+const STORE = 'https://chromewebstore.google.com/detail/feeds/fcgmiifgidlkfggblfbabibjmdkamlmi';
 const install = el(document, 'section', 'install');
-const installBtn = el(document, 'a', 'xfs-btn primary', 'Install the userscript');
-installBtn.href = `${BASE}/x-feed-share.user.js`;
+const storeBtn = ext(STORE, 'Get the Chrome extension');
+storeBtn.className = 'xfs-btn primary';
+const scriptLink = el(document, 'a', null, 'Install the userscript');
+scriptLink.href = `${BASE}/x-feed-share.user.js`;
 const steps = el(document, 'ol');
 const s1 = el(document, 'li', null, 'Install ');
 s1.append(ext('https://www.tampermonkey.net/', 'Tampermonkey'), document.createTextNode(' or '),
   ext('https://violentmonkey.github.io/', 'Violentmonkey'), document.createTextNode(' in your browser.'));
-const s2 = el(document, 'li', null, 'Click “Install the userscript” above, then Install in the dialog that opens.');
+const s2 = el(document, 'li');
+s2.append(scriptLink, document.createTextNode(', then click Install in the dialog that opens.'));
 const s3 = el(document, 'li', null,
   'Chrome only: open Tampermonkey’s extension details (chrome://extensions) and turn on “Allow User Scripts”.');
 const s4 = el(document, 'li', null, 'Open x.com/home. Under the “Feeds” button in the top-right corner, choose whether to share that account.');
 steps.append(s1, s2, s3, s4);
-const how = el(document, 'details');
-how.append(el(document, 'summary', null, 'How to install (about 2 minutes)'), steps);
-install.append(el(document, 'div', 'install-title', 'Share your own feed'),
-  el(document, 'div', null, 'A small script for x.com. Once you say yes for an X account, it shares the Home posts you scroll past ' +
-    '(Following and For You) to that account’s own public feed. Each account is asked separately. Click “Feeds” to pause every ' +
-    'account, or the button next to it to pause just that one. You can delete a feed at any time.'),
-  installBtn, how);
+const how = el(document, 'details', 'alt');
+how.append(el(document, 'summary', null, 'Not on Chrome? Use the userscript instead'), steps,
+  el(document, 'div', 'xfs-muted xfs-small', 'Use the extension or the userscript, not both.'));
+install.append(el(document, 'div', 'install-title', 'Share your own feed'), storeBtn, how);
 
 top.append(h1, intro, install);
 const mount = el(document, 'main');
