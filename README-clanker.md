@@ -123,9 +123,11 @@ and images are in `extension/store/` (`LISTING.md`); the privacy policy is serve
 - Later releases: bump `package.json`'s version (the store refuses an equal or lower one), then
   `node scripts/publish-extension.mjs` builds, uploads and submits for review (`--upload-only` leaves a draft).
   It needs `CWS_PUBLISHER_ID`, `CWS_EXTENSION_ID`, `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET` and
-  `CWS_REFRESH_TOKEN`: create an OAuth client (Desktop app) in a Google Cloud project with the Chrome Web
-  Store API enabled, then get a refresh token for the `https://www.googleapis.com/auth/chromewebstore` scope
-  with the account that owns the item (e.g. via the OAuth 2.0 Playground with your own client credentials).
+  `CWS_REFRESH_TOKEN`: create an OAuth client (Web application, redirect URI
+  `https://developers.google.com/oauthplayground`) in a Google Cloud project with the Chrome Web Store API
+  enabled, then get a refresh token for the `https://www.googleapis.com/auth/chromewebstore` scope with the
+  account that owns the item, in the OAuth 2.0 Playground using your own client credentials. Set the consent
+  screen's publishing status to "In production": in "Testing", refresh tokens expire after 7 days.
   That account needs 2-step verification. Installed copies update themselves within hours of approval.
 
 ## Develop and test
