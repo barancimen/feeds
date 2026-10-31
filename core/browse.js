@@ -4,7 +4,7 @@
 import { ago, el, isolateKeys, renderTweet, sessionLabel } from './render.js';
 import { isHandle } from './safe.js';
 
-const KIND_TABS = [['following', 'Following'], ['foryou', 'For You']];
+const KIND_TABS = [['foryou', 'For You'], ['following', 'Following']];
 const KIND_NAME = Object.fromEntries(KIND_TABS);
 
 function errorText(e) {
