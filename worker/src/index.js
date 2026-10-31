@@ -380,6 +380,8 @@ export async function gc(env, now) {
     env.DB.prepare('DELETE FROM items WHERE session < ?').bind(now - RETENTION_MS),
     env.DB.prepare(`DELETE FROM items WHERE rowid IN (SELECT rowid FROM (SELECT rowid, ROW_NUMBER() OVER
       (PARTITION BY feed_id, kind ORDER BY session DESC, pos ASC) AS rn FROM items) WHERE rn > ?)`).bind(MAX_ITEMS),
+    // Left by an upload that raced its feed's deletion.
+    env.DB.prepare('DELETE FROM items WHERE NOT EXISTS (SELECT 1 FROM feeds WHERE feeds.id = items.feed_id)'),
     env.DB.prepare('DELETE FROM tweets WHERE NOT EXISTS (SELECT 1 FROM items WHERE items.hash = tweets.hash)'),
     env.DB.prepare('UPDATE feeds SET foryou_at = NULL WHERE foryou_at < ?').bind(now - RETENTION_MS),
     env.DB.prepare('UPDATE feeds SET following_at = NULL WHERE following_at < ?').bind(now - RETENTION_MS),

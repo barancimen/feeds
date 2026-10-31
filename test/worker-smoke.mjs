@@ -311,9 +311,12 @@ try {
   await step('cron expires old entries and orphaned tweets', async () => {
     sql(`UPDATE items SET session = session - ${15 * 864e5} WHERE feed_id = '${B.id}'`);
     sql(`UPDATE feeds SET foryou_at = foryou_at - ${15 * 864e5} WHERE id = '${B.id}'`);
+    sql(`INSERT INTO items (feed_id, kind, tweet_id, hash, session, pos) SELECT 'gonegonego', kind, tweet_id, hash, session, pos
+      FROM items WHERE feed_id = '${A.id}' LIMIT 3`); // as if uploaded while that feed was being deleted
     const r = await fetch(`${BASE}/__scheduled?cron=17+3+*+*+*`);
     assert.equal(r.status, 200);
     assert.deepEqual((await call('GET', `/api/feeds/${B.id}?kind=foryou`)).data.items, []);
+    assert.equal(sql("SELECT COUNT(*) AS n FROM items WHERE feed_id = 'gonegonego'")[0].n, 0);
     assert.equal(sql("SELECT COUNT(*) AS n FROM tweets WHERE data LIKE '%FAKE TEXT%'")[0].n, 0);
     assert.deepEqual((await searchIds('q=fake')).results, []);
     assert.deepEqual((await searchIds('q=original')).results[0].seen.map(s => s.feed_id), [A.id]);

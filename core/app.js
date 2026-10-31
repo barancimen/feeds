@@ -79,6 +79,13 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
     if (u) for (const k of KINDS) u.clear(k);
   }
 
+  // The feed is gone: drop the uploads waiting for it, but keep what this page showed, so a new feed shares it
+  // once the user says yes again.
+  function dropQueue(uid) {
+    const u = uploaders.get(uid);
+    if (u) for (const k of KINDS) u.clear(k);
+  }
+
   function shareRecent(uid) {
     for (const k of KINDS) uploaderFor(uid).add(k, tabFor(uid).recent[k]);
   }
@@ -198,7 +205,7 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
     }
     const a = acct(uid);
     if (a) Object.assign(a, { feed: null, paused: true, verify: null });
-    forget(uid);
+    dropQueue(uid);
     app.notice = null;
     app.message = `${a?.handle ? '@' + a.handle + '’s' : 'This account’s'} shared feed no longer exists, or this browser lost its publish key. ` +
       `Click “${a?.handle ? '@' + a.handle : 'Account'}” next to Feeds to start a new one.`;
@@ -312,7 +319,7 @@ export function startApp({ win, request, store, apiOrigin, version = null, updat
     try {
       await api.remove(a.feed.id);
       Object.assign(a, { feed: null, paused: true, verify: null });
-      forget(uid);
+      dropQueue(uid);
       app.message = null;
       app.notice = `Feed deleted, and ${a.handle ? '@' + a.handle : 'this account'} is switched off. Click “${a.handle ? '@' + a.handle : 'Account'}” next to Feeds to share it again (you’ll be asked first).`;
       await save();
