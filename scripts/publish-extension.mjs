@@ -3,7 +3,7 @@
 // Usage: node scripts/publish-extension.mjs [--upload-only]
 //   --upload-only  upload the package as a draft; submit it for review yourself in the dashboard.
 // Env: CWS_PUBLISHER_ID, CWS_EXTENSION_ID, CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN
-// (an OAuth client with the https://www.googleapis.com/auth/chromewebstore scope; see README-clanker.md).
+// (an OAuth client with the https://www.googleapis.com/auth/chromewebstore scope; see README.clank.md).
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
